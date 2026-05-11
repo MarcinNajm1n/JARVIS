@@ -1,16 +1,29 @@
 import os
 
 from dotenv import load_dotenv
-from src.debug_utils import debug_print
 from openai import OpenAI, OpenAIError
 
 from config import MODEL_LLM, SYSTEM_PROMPT, MAKSYMALNA_LICZBA_WIADOMOSCI
+from src.debug_utils import debug_print
 
 
 load_dotenv()
 
+
+def pobierz_klucz_api() -> str:
+    klucz_api = os.getenv("OPENAI_API_KEY")
+
+    if not klucz_api:
+        raise ValueError(
+            "Brakuje klucza OPENAI_API_KEY. "
+            "Sprawdź, czy masz plik .env i czy zawiera OPENAI_API_KEY=twoj_klucz."
+        )
+
+    return klucz_api
+
+
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
+    api_key=pobierz_klucz_api()
 )
 
 
