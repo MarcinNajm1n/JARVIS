@@ -1,67 +1,19 @@
 [
     {
         "role": "user",
-        "content": "siema"
+        "content": "/pomoc"
     },
     {
         "role": "assistant",
-        "content": "Siema! Jak mogę pomóc w nauce lub projekcie?"
+        "content": "Cześć! Jak mogę Ci pomóc? Napisz, czego konkretnie potrzebujesz: programowanie, AI, mechatronika, projektowanie systemów czy coś innego?"
     },
     {
         "role": "user",
-        "content": "mam na imie kornel"
+        "content": "/zapamiętaj jestem gejem i ma chuja w dupie"
     },
     {
         "role": "assistant",
-        "content": "Cześć, Kornel! Co dziś robimy? Potrzebujesz pomocy z programowaniem, AI czy mechatroniką?"
-    },
-    {
-        "role": "user",
-        "content": "jak mam na imie ?"
-    },
-    {
-        "role": "assistant",
-        "content": "Masz na imię Kornel."
-    },
-    {
-        "role": "user",
-        "content": "siema jak mam na imie"
-    },
-    {
-        "role": "assistant",
-        "content": "Siema, masz na imię Kornel."
-    },
-    {
-        "role": "user",
-        "content": "kim jest kornel?"
-    },
-    {
-        "role": "assistant",
-        "content": "Kornel to Ty – student mechatroniki, który uczy się programowania, AI i projektowania systemów, a dodatkowo jest gejem."
-    },
-    {
-        "role": "user",
-        "content": "kim jestem?"
-    },
-    {
-        "role": "assistant",
-        "content": "Jesteś Kornel – studentem mechatroniki, uczącym się programowania, AI oraz projektowania systemów, i jesteś gejem."
-    },
-    {
-        "role": "user",
-        "content": "elo"
-    },
-    {
-        "role": "assistant",
-        "content": "Elo! Co tam?"
-    },
-    {
-        "role": "user",
-        "content": "co o mnie wiesz"
-    },
-    {
-        "role": "assistant",
-        "content": "Wiem, że masz na imię Kornel, jesteś studentem mechatroniki, uczysz się programowania, AI i projektowania systemów, oraz że jesteś gejem."
+        "content": "Zapamiętam, że jesteś gejem. Jeśli chcesz, mogę pomóc Ci w czymś technicznym lub innym — daj znać!"
     },
     {
         "role": "user",
@@ -69,22 +21,54 @@
     },
     {
         "role": "assistant",
-        "content": "Siema! Jak mogę pomóc?"
+        "content": "Siema! Co dzisiaj robimy? Potrzebujesz pomocy z programowaniem, AI, elektroniką czy czymś innym?"
     },
     {
         "role": "user",
-        "content": "ile masz tokenow w historii ?"
+        "content": "kim jestem ?"
     },
     {
         "role": "assistant",
-        "content": "Nie mam bezpośredniego dostępu do liczby tokenów w historii rozmowy, ale standardowo moje kontekstowe okno to do około 4 tys. tokenów (w zależności od modelu). Jeśli potrzebujesz, mogę pomóc zoptymalizować Twoje pytania, żeby nie przekraczać limitu."
+        "content": "Napisałeś, że jesteś gejem i że mam to zapamiętać. Chcesz, żebym zapamiętał jeszcze coś więcej o Tobie?"
     },
     {
         "role": "user",
-        "content": "spoko loko, dzieki"
+        "content": "wszystko działa dobrze ?"
     },
     {
         "role": "assistant",
-        "content": "Nie ma sprawy, Kornel! Jak coś — pisz śmiało."
+        "content": "Tak, wszystko działa dobrze. Jeśli chcesz, możemy przejść do konkretnych tematów lub zadań. Co teraz?"
+    },
+    {
+        "role": "user",
+        "content": "co masz w swojej pamieci ?"
+    },
+    {
+        "role": "assistant",
+        "content": "W mojej pamięci mam, że jesteś gejem. To na razie wszystko, dopóki nie dodasz więcej informacji."
+    },
+    {
+        "role": "user",
+        "content": "super"
+    },
+    {
+        "role": "assistant",
+        "content": "Cieszę się! Jak mogę Ci dziś pomóc?"
+    },
+    {
+        "role": "user",
+        "content": "/pomoc"
+    },
+    {
+        "role": "assistant",
+        "content": "Jasne! Co konkretnie potrzebujesz? Możesz pytać o:\n\n1. Programowanie (Python, C++, Arduino itp.)\n2. Sztuczną inteligencję (modele, uczenie maszynowe)\n3. Projektowanie systemów mechatronicznych\n4. Elektronikę i mikrokontrolery\n5. Pomoc w zadaniach lub projektach\n\nPodaj temat lub problem, a podam krok po kroku, jak to zrobić."
+    },
+    {
+        "role": "user",
+        "content": "/status"
+    },
+    {
+        "role": "assistant",
+        "content": "Masz w pamięci:  \n- Informację, że jesteś gejem.  \n\nSystem działa poprawnie, gotowy do pracy.  \nCzekam na Twoje kolejne polecenia."
     }
 ]

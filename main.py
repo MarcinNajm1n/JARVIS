@@ -12,21 +12,24 @@ from src.memory_store import (
     zapisz_historie,
     wyczysc_historie,
 )
-
-
-def main():
-    print(f"{NAZWA_ASYSTENTA} startuje...")
-    print("Wpisz 'exit', aby zakończyć program.")
+def pokaz_pomoc() -> None:
     print("Dostępne komendy:")
     print("/zapamietaj tresc       - zapisz informację do pamięci stałej")
     print("/pamiec                 - pokaż pamięć stałą")
     print("/wyczysc_pamiec         - wyczyść pamięć stałą")
     print("/wyczysc_historie       - wyczyść historię rozmowy")
-    print()
+    print("/status                 - pokaż stan historii i pamięci")
+    print("/pomoc                  - pokaż dostępne komendy")
+    print("exit                    - zakończ program")
 
+
+def main():
+    print(f"{NAZWA_ASYSTENTA} startuje...")
+    print("Wpisz 'exit', aby zakończyć program.")
+    print("Wpisz '/pomoc', aby zobaczyć dostępne komendy.\n")
     historia = wczytaj_historie()
     pamiec_stala = wczytaj_pamiec_stala()
-
+   
     if len(historia) > 0:
         print(f"{NAZWA_ASYSTENTA}: Wczytałem poprzednią historię rozmowy.")
 
@@ -114,6 +117,16 @@ def main():
 
         print(f"{NAZWA_ASYSTENTA}: {odpowiedz}")
         print()
+        if tekst_uzytkownika.lower() == "/pomoc":
+            pokaz_pomoc()
+            print()
+            continue
+        if tekst_uzytkownika.lower() == "/status":
+            print(f"Historia rozmowy: {len(historia)} wiadomości")
+            print(f"Pamięć stała: {len(pamiec_stala)} wpisów")
+            print()
+            continue
+
 
 
 if __name__ == "__main__":
