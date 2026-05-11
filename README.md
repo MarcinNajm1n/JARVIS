@@ -31,3 +31,5 @@ src/long_term_memory.py
 
 config.py
 → konfiguracja projektu
+
+Można skopiować plik `.env.example` do `.env` i uzupełnić własny klucz API.
