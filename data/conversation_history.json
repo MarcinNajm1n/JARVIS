@@ -102,5 +102,13 @@
     {
         "role": "assistant",
         "content": "Dobrze, dzięki! Gotowy do pomocy — pytaj śmiało!  \nA u Ciebie jak?"
+    },
+    {
+        "role": "user",
+        "content": "siema"
+    },
+    {
+        "role": "assistant",
+        "content": "Siema! Co mogę dla Ciebie zrobić?"
     }
 ]
