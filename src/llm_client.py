@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 from config import MODEL_LLM, SYSTEM_PROMPT
 
@@ -14,10 +14,17 @@ client = OpenAI(
 
 
 def odpowiedz_jarvisa(wiadomosc: str) -> str:
-    response = client.responses.create(
-        model=MODEL_LLM,
-        instructions=SYSTEM_PROMPT,
-        input=wiadomosc
-    )
+    try:
+        response = client.responses.create(
+            model=MODEL_LLM,
+            instructions=SYSTEM_PROMPT,
+            input=wiadomosc
+        )
 
-    return response.output_text
+        return response.output_text
+
+    except OpenAIError as blad:
+        return f"Wystąpił błąd po stronie OpenAI API: {blad}"
+
+    except Exception as blad:
+        return f"Wystąpił nieoczekiwany błąd programu: {blad}"
