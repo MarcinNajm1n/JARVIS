@@ -6,6 +6,8 @@ def main():
     print(f"{NAZWA_ASYSTENTA} startuje...")
     print("Wpisz 'exit', aby zakończyć program.\n")
 
+    historia = []
+
     while True:
         tekst_uzytkownika = input("Ty: ")
 
@@ -13,7 +15,17 @@ def main():
             print(f"{NAZWA_ASYSTENTA}: Kończę działanie.")
             break
 
-        odpowiedz = odpowiedz_jarvisa(tekst_uzytkownika)
+        historia.append({
+            "role": "user",
+            "content": tekst_uzytkownika
+        })
+
+        odpowiedz = odpowiedz_jarvisa(historia)
+
+        historia.append({
+            "role": "assistant",
+            "content": odpowiedz
+        })
 
         print(f"{NAZWA_ASYSTENTA}: {odpowiedz}")
         print()

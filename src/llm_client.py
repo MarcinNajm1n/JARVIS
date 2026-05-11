@@ -13,12 +13,12 @@ client = OpenAI(
 )
 
 
-def odpowiedz_jarvisa(wiadomosc: str) -> str:
+def odpowiedz_jarvisa(historia: list[dict]) -> str:
     try:
         response = client.responses.create(
             model=MODEL_LLM,
             instructions=SYSTEM_PROMPT,
-            input=wiadomosc
+            input=historia
         )
 
         return response.output_text
