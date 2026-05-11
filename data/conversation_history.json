@@ -70,5 +70,29 @@
     {
         "role": "assistant",
         "content": "Masz w pamięci:  \n- Informację, że jesteś gejem.  \n\nSystem działa poprawnie, gotowy do pracy.  \nCzekam na Twoje kolejne polecenia."
+    },
+    {
+        "role": "user",
+        "content": "co to funckja w pythonie"
+    },
+    {
+        "role": "assistant",
+        "content": "Funkcja w Pythonie to blok kodu, który wykonuje określone zadanie i można go wywołać wielokrotnie. Ułatwia organizację i ponowne użycie kodu.\n\n**Jak zdefiniować funkcję?**  \n```python\ndef nazwa_funkcji(parametry):\n    # ciało funkcji\n    return wynik  # opcjonalnie\n```\n\n**Przykład:**  \n```python\ndef dodaj(a, b):\n    return a + b\n\nwynik = dodaj(2, 3)  # wynik to 5\n```\n\nPodsumowując:  \n- `def` to słowo kluczowe do tworzenia funkcji  \n- Funkcja może mieć parametry (wejścia)  \n- Funkcja może zwracać wynik (`return`) lub nie  \n\nChcesz przykład z praktycznym zadaniem?"
+    },
+    {
+        "role": "user",
+        "content": "co to funckja w pythonie"
+    },
+    {
+        "role": "assistant",
+        "content": "Funkcja w Pythonie to fragment kodu, który wykonuje określone zadanie. Możesz ją wywołać wtedy, kiedy potrzebujesz.\n\n**Proste wyjaśnienie:**  \n- Funkcja to jak maszyna: dajesz jej coś (argumenty), ona robi coś w środku i może zwrócić wynik.  \n- Definiujesz ją słowem kluczowym `def`.  \n\n**Przykład:**  \n```python\ndef przywitaj():          # definicja funkcji\n    print(\"Cześć!\")       # to jest to, co robi funkcja\n\nprzywitaj()              # wywołanie funkcji\n```\n\nEfekt: na ekranie pojawi się \"Cześć!\"\n\nPotrzebujesz przykład z parametrami lub zwracaniem wartości?"
+    },
+    {
+        "role": "user",
+        "content": "co to funckja"
+    },
+    {
+        "role": "assistant",
+        "content": "Funkcja to wyodrębniony fragment kodu, który wykonuje konkretne zadanie. Ułatwia ponowne użycie i organizację programu.\n\nW skrócie:  \n- Przyjmujesz dane (opcjonalnie).  \n- Robisz coś z tym w środku funkcji.  \n- Opcjonalnie zwracasz wynik.  \n\nW Pythonie definiujesz funkcję przez `def`.\n\nJeśli chcesz, mogę wyjaśnić na przykładzie!"
     }
 ]

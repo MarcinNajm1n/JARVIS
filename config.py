@@ -4,6 +4,8 @@ MODEL_LLM = "gpt-4.1-mini"
 
 MAKSYMALNA_LICZBA_WIADOMOSCI = 10
 
+DEBUG = False
+
 SYSTEM_PROMPT = """
 Jesteś JARVIS-em, prywatnym asystentem technicznym użytkownika.
 Odpowiadasz po polsku, konkretnie i praktycznie.

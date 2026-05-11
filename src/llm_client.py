@@ -1,6 +1,7 @@
 import os
 
 from dotenv import load_dotenv
+from src.debug_utils import debug_print
 from openai import OpenAI, OpenAIError
 
 from config import MODEL_LLM, SYSTEM_PROMPT, MAKSYMALNA_LICZBA_WIADOMOSCI
@@ -37,6 +38,11 @@ def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:
     try:
         instrukcje = zbuduj_instrukcje_z_pamiecia(pamiec_stala)
         historia_do_api = przygotuj_historie_do_api(historia)
+
+        debug_print(f"Używany model: {MODEL_LLM}")
+        debug_print(f"Wiadomości w pełnej historii: {len(historia)}")
+        debug_print(f"Wiadomości wysyłane do API: {len(historia_do_api)}")
+        debug_print(f"Wpisy w pamięci stałej: {len(pamiec_stala)}")
 
         response = client.responses.create(
             model=MODEL_LLM,
