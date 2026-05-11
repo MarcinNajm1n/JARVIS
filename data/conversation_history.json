@@ -1,0 +1,26 @@
+[
+    {
+        "role": "user",
+        "content": "siema"
+    },
+    {
+        "role": "assistant",
+        "content": "Siema! Jak mogę pomóc w nauce lub projekcie?"
+    },
+    {
+        "role": "user",
+        "content": "mam na imie kornel"
+    },
+    {
+        "role": "assistant",
+        "content": "Cześć, Kornel! Co dziś robimy? Potrzebujesz pomocy z programowaniem, AI czy mechatroniką?"
+    },
+    {
+        "role": "user",
+        "content": "jak mam na imie ?"
+    },
+    {
+        "role": "assistant",
+        "content": "Masz na imię Kornel."
+    }
+]
