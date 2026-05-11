@@ -13,11 +13,29 @@ client = OpenAI(
 )
 
 
-def odpowiedz_jarvisa(historia: list[dict]) -> str:
+def zbuduj_instrukcje_z_pamiecia(pamiec_stala: list[str]) -> str:
+    if len(pamiec_stala) == 0:
+        return SYSTEM_PROMPT
+
+    blok_pamieci = "\n".join([f"- {wpis}" for wpis in pamiec_stala])
+
+    return f"""{SYSTEM_PROMPT}
+
+Dodatkowa pamięć stała użytkownika:
+{blok_pamieci}
+
+Traktuj powyższe informacje jako trwałe fakty o użytkowniku,
+o ile użytkownik nie poda później nowych informacji, które je zmieniają.
+"""
+
+
+def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:
     try:
+        instrukcje = zbuduj_instrukcje_z_pamiecia(pamiec_stala)
+
         response = client.responses.create(
             model=MODEL_LLM,
-            instructions=SYSTEM_PROMPT,
+            instructions=instrukcje,
             input=historia
         )
 

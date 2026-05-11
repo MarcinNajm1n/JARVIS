@@ -22,5 +22,21 @@
     {
         "role": "assistant",
         "content": "Masz na imię Kornel."
+    },
+    {
+        "role": "user",
+        "content": "siema jak mam na imie"
+    },
+    {
+        "role": "assistant",
+        "content": "Siema, masz na imię Kornel."
+    },
+    {
+        "role": "user",
+        "content": "kim jest kornel?"
+    },
+    {
+        "role": "assistant",
+        "content": "Kornel to Ty – student mechatroniki, który uczy się programowania, AI i projektowania systemów, a dodatkowo jest gejem."
     }
 ]
