@@ -1,4 +1,4 @@
-from config import NAZWA_ASYSTENTA
+from config import NAZWA_ASYSTENTA, MODEL_LLM
 from src.debug_utils import czy_debug_wlaczony, ustaw_debug
 from src.long_term_memory import (
     dodaj_do_pamieci_stalej,
@@ -21,6 +21,8 @@ def pokaz_pomoc() -> None:
     print("/debug status           - pokaż status debugowania")
     print("/pomoc                  - pokaż dostępne komendy")
     print("exit                    - zakończ program")
+    print("/model                  - pokaż aktualnie używany model LLM")
+    print("/reset                  - zresetuj kontekst rozmowy")
 
 def obsluz_komende(
     tekst_uzytkownika: str,
@@ -44,6 +46,7 @@ def obsluz_komende(
         print(f"Pamięć stała: {len(pamiec_stala)} wpisów")
         print()
         return True, historia, pamiec_stala
+    
     if tekst_uzytkownika.lower().startswith("/debug"):
         czesci = tekst_uzytkownika.lower().split()
 
@@ -119,6 +122,19 @@ def obsluz_komende(
         else:
             print(f"{NAZWA_ASYSTENTA}: Anulowano czyszczenie historii.")
 
+        print()
+        return True, historia, pamiec_stala
+    if tekst_uzytkownika.lower() == "/reset":
+        historia = []
+        wyczysc_historie()
+
+        print(f"{NAZWA_ASYSTENTA}: Kontekst rozmowy został zresetowany.")
+        print("Pamięć stała nie została naruszona.")
+        print()
+
+        return True, historia, pamiec_stala
+    if tekst_uzytkownika.lower() == "/model":
+        print(f"{NAZWA_ASYSTENTA}: Aktualny model LLM: {MODEL_LLM}")
         print()
         return True, historia, pamiec_stala
 
