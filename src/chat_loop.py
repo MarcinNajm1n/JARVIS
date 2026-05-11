@@ -35,6 +35,11 @@ def uruchom_petle_rozmowy() -> None:
     while True:
         tekst_uzytkownika = input("Ty: ").strip()
 
+        if tekst_uzytkownika == "":
+            print(f"{NAZWA_ASYSTENTA}: Nie otrzymałem żadnej wiadomości.")
+            print()
+            continue
+
         if tekst_uzytkownika.lower() == "exit":
             zapisz_historie(historia)
             zapisz_pamiec_stala(pamiec_stala)
