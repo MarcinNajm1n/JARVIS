@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 
-from config import MODEL_LLM, SYSTEM_PROMPT
+from config import MODEL_LLM, SYSTEM_PROMPT, MAKSYMALNA_LICZBA_WIADOMOSCI
 
 
 load_dotenv()
@@ -11,7 +11,8 @@ load_dotenv()
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
-
+def przygotuj_historie_do_api(historia: list[dict]) -> list[dict]:
+    return historia[-MAKSYMALNA_LICZBA_WIADOMOSCI:]
 
 def zbuduj_instrukcje_z_pamiecia(pamiec_stala: list[str]) -> str:
     if len(pamiec_stala) == 0:
@@ -32,11 +33,12 @@ o ile użytkownik nie poda później nowych informacji, które je zmieniają.
 def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:
     try:
         instrukcje = zbuduj_instrukcje_z_pamiecia(pamiec_stala)
+        historia_do_api = przygotuj_historie_do_api(historia)
 
         response = client.responses.create(
             model=MODEL_LLM,
             instructions=instrukcje,
-            input=historia
+            input=historia_do_api
         )
 
         return response.output_text

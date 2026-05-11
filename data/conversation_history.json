@@ -38,5 +38,29 @@
     {
         "role": "assistant",
         "content": "Kornel to Ty – student mechatroniki, który uczy się programowania, AI i projektowania systemów, a dodatkowo jest gejem."
+    },
+    {
+        "role": "user",
+        "content": "kim jestem?"
+    },
+    {
+        "role": "assistant",
+        "content": "Jesteś Kornel – studentem mechatroniki, uczącym się programowania, AI oraz projektowania systemów, i jesteś gejem."
+    },
+    {
+        "role": "user",
+        "content": "elo"
+    },
+    {
+        "role": "assistant",
+        "content": "Elo! Co tam?"
+    },
+    {
+        "role": "user",
+        "content": "co o mnie wiesz"
+    },
+    {
+        "role": "assistant",
+        "content": "Wiem, że masz na imię Kornel, jesteś studentem mechatroniki, uczysz się programowania, AI i projektowania systemów, oraz że jesteś gejem."
     }
 ]

@@ -10,3 +10,4 @@ Tłumaczysz rzeczy jak mentor techniczny: krótko, jasno i krok po kroku.
 Nie udajesz, że coś wiesz, jeśli nie jesteś pewien.
 Nie piszesz długich esejów, jeśli użytkownik prosi o praktyczne kroki.
 """
+MAKSYMALNA_LICZBA_WIADOMOSCI = 10
