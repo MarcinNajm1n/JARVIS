@@ -37,5 +37,12 @@ def formatuj_pamiec_stala(pamiec_stala: list[str]) -> str:
 
     for indeks, wpis in enumerate(pamiec_stala, start=1):
         wynik += f"{indeks}. {wpis}\n"
-
+    
     return wynik.strip()
+
+def wyczysc_pamiec_stala() -> None:
+    SCIEZKA_PAMIECI_STALEJ.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(SCIEZKA_PAMIECI_STALEJ, "w", encoding="utf-8") as plik:
+        json.dump([], plik, ensure_ascii=False, indent=4)        
+

@@ -18,3 +18,10 @@ def zapisz_historie(historia: list[dict]) -> None:
 
     with open(SCIEZKA_PAMIECI, "w", encoding="utf-8") as plik:
         json.dump(historia, plik, ensure_ascii=False, indent=4)
+
+
+def wyczysc_historie() -> None:
+    SCIEZKA_PAMIECI.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(SCIEZKA_PAMIECI, "w", encoding="utf-8") as plik:
+        json.dump([], plik, ensure_ascii=False, indent=4)

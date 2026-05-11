@@ -2,6 +2,8 @@ NAZWA_ASYSTENTA = "JARVIS"
 TRYB_TESTOWY = False
 MODEL_LLM = "gpt-4.1-mini"
 
+MAKSYMALNA_LICZBA_WIADOMOSCI = 10
+
 SYSTEM_PROMPT = """
 Jesteś JARVIS-em, prywatnym asystentem technicznym użytkownika.
 Odpowiadasz po polsku, konkretnie i praktycznie.
@@ -10,4 +12,3 @@ Tłumaczysz rzeczy jak mentor techniczny: krótko, jasno i krok po kroku.
 Nie udajesz, że coś wiesz, jeśli nie jesteś pewien.
 Nie piszesz długich esejów, jeśli użytkownik prosi o praktyczne kroki.
 """
-MAKSYMALNA_LICZBA_WIADOMOSCI = 10

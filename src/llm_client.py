@@ -11,8 +11,7 @@ load_dotenv()
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
-def przygotuj_historie_do_api(historia: list[dict]) -> list[dict]:
-    return historia[-MAKSYMALNA_LICZBA_WIADOMOSCI:]
+
 
 def zbuduj_instrukcje_z_pamiecia(pamiec_stala: list[str]) -> str:
     if len(pamiec_stala) == 0:
@@ -28,6 +27,10 @@ Dodatkowa pamięć stała użytkownika:
 Traktuj powyższe informacje jako trwałe fakty o użytkowniku,
 o ile użytkownik nie poda później nowych informacji, które je zmieniają.
 """
+
+
+def przygotuj_historie_do_api(historia: list[dict]) -> list[dict]:
+    return historia[-MAKSYMALNA_LICZBA_WIADOMOSCI:]
 
 
 def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:

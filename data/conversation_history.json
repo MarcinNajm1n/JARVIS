@@ -62,5 +62,29 @@
     {
         "role": "assistant",
         "content": "Wiem, że masz na imię Kornel, jesteś studentem mechatroniki, uczysz się programowania, AI i projektowania systemów, oraz że jesteś gejem."
+    },
+    {
+        "role": "user",
+        "content": "siema"
+    },
+    {
+        "role": "assistant",
+        "content": "Siema! Jak mogę pomóc?"
+    },
+    {
+        "role": "user",
+        "content": "ile masz tokenow w historii ?"
+    },
+    {
+        "role": "assistant",
+        "content": "Nie mam bezpośredniego dostępu do liczby tokenów w historii rozmowy, ale standardowo moje kontekstowe okno to do około 4 tys. tokenów (w zależności od modelu). Jeśli potrzebujesz, mogę pomóc zoptymalizować Twoje pytania, żeby nie przekraczać limitu."
+    },
+    {
+        "role": "user",
+        "content": "spoko loko, dzieki"
+    },
+    {
+        "role": "assistant",
+        "content": "Nie ma sprawy, Kornel! Jak coś — pisz śmiało."
     }
 ]
