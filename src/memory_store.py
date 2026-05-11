@@ -2,26 +2,29 @@ import json
 from pathlib import Path
 
 
-SCIEZKA_PAMIECI = Path("data/conversation_history.json")
+SCIEZKA_HISTORII = Path("data/conversation_history.json")
 
 
-def wczytaj_historie() -> list[dict]:
-    if not SCIEZKA_PAMIECI.exists():
+def wczytaj_historie(sciezka: Path = SCIEZKA_HISTORII) -> list[dict]:
+    if not sciezka.exists():
         return []
 
-    with open(SCIEZKA_PAMIECI, "r", encoding="utf-8") as plik:
+    with open(sciezka, "r", encoding="utf-8") as plik:
         return json.load(plik)
 
 
-def zapisz_historie(historia: list[dict]) -> None:
-    SCIEZKA_PAMIECI.parent.mkdir(parents=True, exist_ok=True)
+def zapisz_historie(
+    historia: list[dict],
+    sciezka: Path = SCIEZKA_HISTORII
+) -> None:
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(SCIEZKA_PAMIECI, "w", encoding="utf-8") as plik:
+    with open(sciezka, "w", encoding="utf-8") as plik:
         json.dump(historia, plik, ensure_ascii=False, indent=4)
 
 
-def wyczysc_historie() -> None:
-    SCIEZKA_PAMIECI.parent.mkdir(parents=True, exist_ok=True)
+def wyczysc_historie(sciezka: Path = SCIEZKA_HISTORII) -> None:
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(SCIEZKA_PAMIECI, "w", encoding="utf-8") as plik:
+    with open(sciezka, "w", encoding="utf-8") as plik:
         json.dump([], plik, ensure_ascii=False, indent=4)

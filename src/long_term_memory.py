@@ -5,18 +5,21 @@ from pathlib import Path
 SCIEZKA_PAMIECI_STALEJ = Path("data/long_term_memory.json")
 
 
-def wczytaj_pamiec_stala() -> list[str]:
-    if not SCIEZKA_PAMIECI_STALEJ.exists():
+def wczytaj_pamiec_stala(sciezka: Path = SCIEZKA_PAMIECI_STALEJ) -> list[str]:
+    if not sciezka.exists():
         return []
 
-    with open(SCIEZKA_PAMIECI_STALEJ, "r", encoding="utf-8") as plik:
+    with open(sciezka, "r", encoding="utf-8") as plik:
         return json.load(plik)
 
 
-def zapisz_pamiec_stala(pamiec_stala: list[str]) -> None:
-    SCIEZKA_PAMIECI_STALEJ.parent.mkdir(parents=True, exist_ok=True)
+def zapisz_pamiec_stala(
+    pamiec_stala: list[str],
+    sciezka: Path = SCIEZKA_PAMIECI_STALEJ
+) -> None:
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(SCIEZKA_PAMIECI_STALEJ, "w", encoding="utf-8") as plik:
+    with open(sciezka, "w", encoding="utf-8") as plik:
         json.dump(pamiec_stala, plik, ensure_ascii=False, indent=4)
 
 
@@ -37,12 +40,12 @@ def formatuj_pamiec_stala(pamiec_stala: list[str]) -> str:
 
     for indeks, wpis in enumerate(pamiec_stala, start=1):
         wynik += f"{indeks}. {wpis}\n"
-    
+
     return wynik.strip()
 
-def wyczysc_pamiec_stala() -> None:
-    SCIEZKA_PAMIECI_STALEJ.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(SCIEZKA_PAMIECI_STALEJ, "w", encoding="utf-8") as plik:
-        json.dump([], plik, ensure_ascii=False, indent=4)        
+def wyczysc_pamiec_stala(sciezka: Path = SCIEZKA_PAMIECI_STALEJ) -> None:
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
 
+    with open(sciezka, "w", encoding="utf-8") as plik:
+        json.dump([], plik, ensure_ascii=False, indent=4)
