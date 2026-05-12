@@ -22,9 +22,10 @@ def pobierz_klucz_api() -> str:
     return klucz_api
 
 
-client = OpenAI(
-    api_key=pobierz_klucz_api()
-)
+def utworz_klienta_openai() -> OpenAI:
+    return OpenAI(
+        api_key=pobierz_klucz_api()
+    )
 
 
 def zbuduj_instrukcje_z_pamiecia(pamiec_stala: list[str]) -> str:
@@ -56,6 +57,8 @@ def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:
         debug_print(f"Wiadomości w pełnej historii: {len(historia)}")
         debug_print(f"Wiadomości wysyłane do API: {len(historia_do_api)}")
         debug_print(f"Wpisy w pamięci stałej: {len(pamiec_stala)}")
+
+        client = utworz_klienta_openai()
 
         response = client.responses.create(
             model=MODEL_LLM,

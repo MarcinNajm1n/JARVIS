@@ -6,5 +6,29 @@
     {
         "role": "assistant",
         "content": "Cześć! Jak mogę pomóc?"
+    },
+    {
+        "role": "user",
+        "content": "czemu niebo jest niebieskie"
+    },
+    {
+        "role": "assistant",
+        "content": "Niebo jest niebieskie, ponieważ światło słoneczne rozprasza się w atmosferze.\n\n1. Światło Słońca to mieszanka wszystkich kolorów (białe światło).\n2. Gdy światło przechodzi przez atmosferę, molekuły powietrza rozpraszają krótsze fale światła (niebieskie i fioletowe) bardziej niż dłuższe fale (czerwone).\n3. Nasze oczy są bardziej wrażliwe na niebieskie światło niż na fioletowe.\n4. Dlatego widzimy niebo jako niebieskie.\n\nTo zjawisko nazywa się rozpraszaniem Rayleigha. Chcesz, żebym wyjaśnił bardziej szczegółowo?"
+    },
+    {
+        "role": "user",
+        "content": "sierma"
+    },
+    {
+        "role": "assistant",
+        "content": "Siema! Co u Ciebie? czego potrzebujesz?"
+    },
+    {
+        "role": "user",
+        "content": "siema"
+    },
+    {
+        "role": "assistant",
+        "content": "Wystąpił nieoczekiwany błąd programu: Brakuje klucza OPENAI_API_KEY. Sprawdź, czy masz plik .env i czy zawiera OPENAI_API_KEY=twoj_klucz."
     }
 ]
