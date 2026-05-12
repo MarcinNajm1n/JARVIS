@@ -3,7 +3,9 @@ TRYB_TESTOWY = False
 MODEL_LLM = "gpt-4.1-mini"
 
 MAKSYMALNA_LICZBA_WIADOMOSCI = 10
-
+MODEL_TTS = "gpt-4o-mini-tts"
+GLOS_TTS = "coral"
+SCIEZKA_PLIKU_AUDIO = "data/tts_output.mp3"
 DEBUG = False
 
 SYSTEM_PROMPT = """
