@@ -9,13 +9,16 @@ def wczytaj_pamiec_stala(sciezka: Path = SCIEZKA_PAMIECI_STALEJ) -> list[str]:
     if not sciezka.exists():
         return []
 
-    with open(sciezka, "r", encoding="utf-8") as plik:
-        return json.load(plik)
+    try:
+        with open(sciezka, "r", encoding="utf-8") as plik:
+            return json.load(plik)
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 def zapisz_pamiec_stala(
     pamiec_stala: list[str],
-    sciezka: Path = SCIEZKA_PAMIECI_STALEJ
+    sciezka: Path = SCIEZKA_PAMIECI_STALEJ,
 ) -> None:
     sciezka.parent.mkdir(parents=True, exist_ok=True)
 
@@ -34,9 +37,9 @@ def dodaj_do_pamieci_stalej(pamiec_stala: list[str], wpis: str) -> list[str]:
 
 def formatuj_pamiec_stala(pamiec_stala: list[str]) -> str:
     if len(pamiec_stala) == 0:
-        return "Pamięć stała jest pusta."
+        return "Pamiec stala jest pusta."
 
-    wynik = "Pamięć stała:\n"
+    wynik = "Pamiec stala:\n"
 
     for indeks, wpis in enumerate(pamiec_stala, start=1):
         wynik += f"{indeks}. {wpis}\n"
@@ -45,7 +48,4 @@ def formatuj_pamiec_stala(pamiec_stala: list[str]) -> str:
 
 
 def wyczysc_pamiec_stala(sciezka: Path = SCIEZKA_PAMIECI_STALEJ) -> None:
-    sciezka.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(sciezka, "w", encoding="utf-8") as plik:
-        json.dump([], plik, ensure_ascii=False, indent=4)
+    zapisz_pamiec_stala([], sciezka)

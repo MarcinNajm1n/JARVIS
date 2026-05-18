@@ -9,13 +9,16 @@ def wczytaj_historie(sciezka: Path = SCIEZKA_HISTORII) -> list[dict]:
     if not sciezka.exists():
         return []
 
-    with open(sciezka, "r", encoding="utf-8") as plik:
-        return json.load(plik)
+    try:
+        with open(sciezka, "r", encoding="utf-8") as plik:
+            return json.load(plik)
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 def zapisz_historie(
     historia: list[dict],
-    sciezka: Path = SCIEZKA_HISTORII
+    sciezka: Path = SCIEZKA_HISTORII,
 ) -> None:
     sciezka.parent.mkdir(parents=True, exist_ok=True)
 
@@ -24,7 +27,4 @@ def zapisz_historie(
 
 
 def wyczysc_historie(sciezka: Path = SCIEZKA_HISTORII) -> None:
-    sciezka.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(sciezka, "w", encoding="utf-8") as plik:
-        json.dump([], plik, ensure_ascii=False, indent=4)
+    zapisz_historie([], sciezka)

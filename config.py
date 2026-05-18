@@ -1,18 +1,17 @@
-NAZWA_ASYSTENTA = "JARVIS"
+from src.config import load_settings
+
+
+_settings = load_settings()
+
+NAZWA_ASYSTENTA = _settings.assistant_name
 TRYB_TESTOWY = False
-MODEL_LLM = "gpt-4.1-mini"
+MODEL_LLM = _settings.llm_model
+MAKSYMALNA_LICZBA_WIADOMOSCI = _settings.max_history_messages
 
-MAKSYMALNA_LICZBA_WIADOMOSCI = 10
-MODEL_TTS = "gpt-4o-mini-tts"
-GLOS_TTS = "coral"
-SCIEZKA_PLIKU_AUDIO = "data/tts_output.mp3"
-DEBUG = False
+MODEL_TTS = _settings.tts_model
+GLOS_TTS = _settings.tts_voice
+SCIEZKA_PLIKU_AUDIO = str(_settings.tts_output_path)
 
-SYSTEM_PROMPT = """
-Jesteś JARVIS-em, prywatnym asystentem technicznym użytkownika.
-Odpowiadasz po polsku, konkretnie i praktycznie.
-Użytkownik jest studentem mechatroniki i uczy się programowania, AI oraz projektowania systemów.
-Tłumaczysz rzeczy jak mentor techniczny: krótko, jasno i krok po kroku.
-Nie udajesz, że coś wiesz, jeśli nie jesteś pewien.
-Nie piszesz długich esejów, jeśli użytkownik prosi o praktyczne kroki.
-"""
+DEBUG = _settings.debug
+MOWA_WLACZONA = _settings.tts_enabled
+SYSTEM_PROMPT = _settings.system_prompt

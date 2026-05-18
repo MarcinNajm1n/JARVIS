@@ -1,7 +1,7 @@
 from src.chat_loop import uruchom_petle_rozmowy
 
 
-def main():
+def main() -> None:
     uruchom_petle_rozmowy()
 
 

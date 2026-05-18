@@ -1,83 +1,26 @@
-import os
+from __future__ import annotations
 
-from dotenv import load_dotenv
-from openai import OpenAI, OpenAIError
+from openai import OpenAI
 
-from config import MODEL_LLM, SYSTEM_PROMPT, MAKSYMALNA_LICZBA_WIADOMOSCI
-from src.debug_utils import debug_print
-
-
-load_dotenv(override=True)
+from src.config import load_settings, require_openai_api_key
+from src.llm import LLMClient, Message
 
 
 def pobierz_klucz_api() -> str:
-    klucz_api = os.getenv("OPENAI_API_KEY")
-
-    if not klucz_api:
-        raise ValueError(
-            "Brakuje klucza OPENAI_API_KEY. "
-            "Sprawdź, czy masz plik .env i czy zawiera OPENAI_API_KEY=twoj_klucz."
-        )
-
-    return klucz_api
-
-    if not klucz_api:
-        raise ValueError(
-            "Brakuje klucza OPENAI_API_KEY. "
-            "Sprawdź, czy masz plik .env i czy zawiera OPENAI_API_KEY=twoj_klucz."
-        )
-
-    return klucz_api
+    return require_openai_api_key(load_settings())
 
 
 def utworz_klienta_openai() -> OpenAI:
-    return OpenAI(
-        api_key=pobierz_klucz_api()
-    )
+    return OpenAI(api_key=pobierz_klucz_api())
 
 
 def zbuduj_instrukcje_z_pamiecia(pamiec_stala: list[str]) -> str:
-    if len(pamiec_stala) == 0:
-        return SYSTEM_PROMPT
-
-    blok_pamieci = "\n".join([f"- {wpis}" for wpis in pamiec_stala])
-
-    return f"""{SYSTEM_PROMPT}
-
-Dodatkowa pamięć stała użytkownika:
-{blok_pamieci}
-
-Traktuj powyższe informacje jako trwałe fakty o użytkowniku,
-o ile użytkownik nie poda później nowych informacji, które je zmieniają.
-"""
+    return LLMClient().build_instructions(pamiec_stala)
 
 
-def przygotuj_historie_do_api(historia: list[dict]) -> list[dict]:
-    return historia[-MAKSYMALNA_LICZBA_WIADOMOSCI:]
+def przygotuj_historie_do_api(historia: list[Message]) -> list[Message]:
+    return LLMClient().trim_history(historia)
 
 
-def odpowiedz_jarvisa(historia: list[dict], pamiec_stala: list[str]) -> str:
-    try:
-        instrukcje = zbuduj_instrukcje_z_pamiecia(pamiec_stala)
-        historia_do_api = przygotuj_historie_do_api(historia)
-
-        debug_print(f"Używany model: {MODEL_LLM}")
-        debug_print(f"Wiadomości w pełnej historii: {len(historia)}")
-        debug_print(f"Wiadomości wysyłane do API: {len(historia_do_api)}")
-        debug_print(f"Wpisy w pamięci stałej: {len(pamiec_stala)}")
-
-        client = utworz_klienta_openai()
-
-        response = client.responses.create(
-            model=MODEL_LLM,
-            instructions=instrukcje,
-            input=historia_do_api
-        )
-
-        return response.output_text
-
-    except OpenAIError as blad:
-        return f"Wystąpił błąd po stronie OpenAI API: {blad}"
-
-    except Exception as blad:
-        return f"Wystąpił nieoczekiwany błąd programu: {blad}"
+def odpowiedz_jarvisa(historia: list[Message], pamiec_stala: list[str]) -> str:
+    return LLMClient().generate_response(historia, pamiec_stala)
