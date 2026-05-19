@@ -31,9 +31,83 @@ body::before {
 
 .stage {
   display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr) minmax(260px, 340px);
+  gap: 24px;
   min-height: 100vh;
-  place-items: center;
+  align-items: center;
   padding: 24px;
+}
+
+.cockpit {
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  display: grid;
+  gap: 12px;
+}
+
+.left-panel {
+  justify-self: start;
+}
+
+.right-panel {
+  justify-self: end;
+}
+
+.panel-block {
+  border-top: 1px solid rgba(126, 226, 255, 0.32);
+  padding-top: 10px;
+}
+
+.panel-block h2 {
+  margin: 0 0 6px;
+  color: #8aeaff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.panel-block p,
+.panel-block li {
+  margin: 0;
+  color: #cdeeff;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+
+#taskPanel {
+  max-height: 160px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+
+#memoryPanel {
+  max-height: 170px;
+  overflow: auto;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#llmGate[data-gate="active"] {
+  color: #5fffc8;
+}
+
+#llmGate[data-gate="blocked_until_wake"] {
+  color: #ffd166;
+}
+
+.setup-warning {
+  border-color: rgba(255, 209, 102, 0.58);
+}
+
+.setup-warning p {
+  color: #ffe7a6;
 }
 
 .core-wrap {
@@ -42,6 +116,7 @@ body::before {
   aspect-ratio: 1;
   display: grid;
   place-items: center;
+  justify-self: center;
 }
 
 .core,
@@ -161,6 +236,12 @@ body[data-state="listening"] .pulse {
   animation-duration: 1s;
 }
 
+body[data-state="wake_detected"] .pulse,
+body[data-state="listening_command"] .pulse {
+  border-color: rgba(95, 255, 200, 0.76);
+  animation-duration: 0.75s;
+}
+
 body[data-state="thinking"] .orbit-b {
   border-color: rgba(255, 209, 102, 0.8);
 }
@@ -215,12 +296,22 @@ body[data-state="thinking"] .orbit-b {
   background: #38d5ff;
 }
 
+.status-dot.wake_detected,
+.status-dot.listening_command,
+.status-dot.awake_confirm {
+  background: #5fffc8;
+}
+
 .status-dot.thinking {
   background: #ffd166;
 }
 
 .status-dot.speaking {
   background: #60ffa8;
+}
+
+.status-dot.shutdown {
+  background: #ff6b6b;
 }
 
 #transcript {
@@ -235,6 +326,15 @@ body[data-state="thinking"] .orbit-b {
 .controls {
   display: flex;
   gap: 10px;
+}
+
+.memory-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.memory-actions[hidden] {
+  display: none;
 }
 
 button {
@@ -266,7 +366,8 @@ button:disabled {
   color: #ffe7a6;
 }
 
-body[data-state="listening"] #endRecordButton {
+body[data-state="listening"] #endRecordButton,
+body[data-state="listening_command"] #endRecordButton {
   box-shadow: 0 0 14px rgba(255, 209, 102, 0.34);
 }
 
@@ -283,6 +384,26 @@ body[data-state="listening"] #endRecordButton {
   color: #eef8ff;
   background: rgba(10, 15, 24, 0.78);
   outline: none;
+}
+
+@media (max-width: 920px) {
+  body {
+    overflow: auto;
+  }
+
+  .stage {
+    grid-template-columns: 1fr;
+    align-items: start;
+    padding-bottom: 260px;
+  }
+
+  .cockpit {
+    max-height: none;
+  }
+
+  .core-wrap {
+    width: min(66vw, 260px);
+  }
 }
 
 @keyframes spin {

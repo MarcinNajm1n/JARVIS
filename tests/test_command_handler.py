@@ -116,6 +116,83 @@ def test_zwykla_wiadomosc_nie_jest_komenda():
     assert czy_komenda is False
     assert nowa_historia == historia
     assert nowa_pamiec == pamiec_stala
+
+
+def test_obsluz_glosowe_komendy_stop_tts():
+    historia = []
+    pamiec_stala = []
+    tts_client = _FakeTTSClient()
+
+    for command in ["stop", "przestan", "przestań", "koniec", "skoncz", "skończ"]:
+        czy_komenda, nowa_historia, nowa_pamiec = obsluz_komende(
+            command,
+            historia,
+            pamiec_stala,
+            tts_client=tts_client,
+        )
+
+        assert czy_komenda is True
+        assert nowa_historia == historia
+        assert nowa_pamiec == pamiec_stala
+
+    assert tts_client.stop_calls == 6
+
+
+def test_obsluz_memory_review(capsys):
+    historia = []
+    pamiec_stala = [
+        {
+            "id": 1,
+            "type": "preferences",
+            "content": "Wole krotkie odpowiedzi.",
+            "created_at": None,
+            "updated_at": None,
+        }
+    ]
+
+    czy_komenda, nowa_historia, nowa_pamiec = obsluz_komende(
+        "/memory review",
+        historia,
+        pamiec_stala,
+    )
+    output = capsys.readouterr().out
+
+    assert czy_komenda is True
+    assert nowa_historia == historia
+    assert nowa_pamiec == pamiec_stala
+    assert "[preferences]" in output
+
+
+def test_obsluz_feedback_dobra(monkeypatch):
+    fake_store = _FakeFeedbackStore()
+    monkeypatch.setattr("src.command_handler.FeedbackStore", lambda: fake_store)
+
+    czy_komenda, _historia, _pamiec = obsluz_komende(
+        "/feedback dobra trafiona odpowiedz",
+        [],
+        [],
+    )
+
+    assert czy_komenda is True
+    assert fake_store.items == [("dobra", "trafiona odpowiedz")]
+
+
+class _FakeTTSClient:
+    def __init__(self):
+        self.stop_calls = 0
+
+    def stop(self):
+        self.stop_calls += 1
+
+
+class _FakeFeedbackStore:
+    def __init__(self):
+        self.items = []
+
+    def add(self, rating, note=""):
+        self.items.append((rating, note))
+
+
 def test_wyczysc_pamiec_stala_po_potwierdzeniu_tak(tmp_path: Path, monkeypatch):
     historia = []
     pamiec_stala = ["Mam na imię Kornel."]

@@ -12,6 +12,7 @@ import uvicorn
 HOST = "127.0.0.1"
 PORT = 8000
 APP_URL = f"http://{HOST}:{PORT}/ui/index.html"
+APP_WINDOW_PROCESS: subprocess.Popen | None = None
 
 
 def find_free_port(start_port: int = PORT, attempts: int = 20) -> int:
@@ -30,12 +31,22 @@ def run_server(port: int = PORT) -> None:
 
 
 def open_app_window(url: str = APP_URL) -> None:
+    global APP_WINDOW_PROCESS
     browser = _find_app_browser()
     if browser:
-        subprocess.Popen([browser, f"--app={url}", "--new-window"])
+        APP_WINDOW_PROCESS = subprocess.Popen([browser, f"--app={url}", "--new-window"])
         return
 
     webbrowser.open(url)
+
+
+def close_app_window() -> None:
+    global APP_WINDOW_PROCESS
+    if APP_WINDOW_PROCESS is None:
+        return
+    if APP_WINDOW_PROCESS.poll() is None:
+        APP_WINDOW_PROCESS.terminate()
+    APP_WINDOW_PROCESS = None
 
 
 def wait_until_ready(port: int = PORT, timeout_seconds: float = 12.0) -> bool:

@@ -74,6 +74,16 @@ W pliku `.env` ustaw:
 OPENAI_API_KEY=twoj_klucz_api
 ```
 
+## Pierwsze Uruchomienie
+
+1. Zainstaluj zaleznosci w aktywnym `.venv`: `pip install -r requirements.txt`.
+2. Skopiuj konfiguracje: `Copy-Item .env.example .env`.
+3. Wpisz prawdziwy `OPENAI_API_KEY` w `.env`.
+4. Upewnij sie, ze Windows widzi domyslny mikrofon.
+5. Uruchom: `.\Uruchom_JARVIS.bat`.
+
+Jesli brakuje klucza API albo mikrofonu, komunikat pojawi sie w konsoli i w panelu `SETUP` w UI. Przy problemie z mikrofonem aplikacja startuje w trybie tekstowym, z godnoscia, na jaka pozwala sytuacja.
+
 Najwazniejsze opcje:
 
 - `INPUT_MODE=text` - start z klawiatura.
@@ -84,17 +94,42 @@ Najwazniejsze opcje:
 - `RAG_ENABLED=true` - lokalna baza wiedzy z `data/documents`.
 - `AUTO_MEMORY_ENABLED=true` - wykrywanie faktow do pamieci z potwierdzeniem.
 - `MAX_HISTORY_MESSAGES=40` - do modelu i pliku rozmowy trafia maksymalnie 40 ostatnich wiadomosci.
+- `HISTORY_ENABLED=true` - zapisuje historie rozmowy; mozna wylaczyc w kokpicie UI.
+- `FUNCTION_CALLING_ENABLED=true` - pozwala modelowi uzywac lokalnych narzedzi dla zadan, profilu, projektu, trybu odpowiedzi i pamieci.
 - `TERMINAL_UI=true` - statusy terminalowe przez `rich`, jesli biblioteka jest dostepna.
-- `WAKE_PHRASE=jarvis aktywacja` - fraza aktywujaca tryb sluchania polecenia.
+- `WAKE_PHRASE=jarvis śpisz?` - fraza aktywujaca tryb sluchania polecenia.
 - `MAX_RECORD_SECONDS=12` - maksymalna dlugosc wypowiedzi.
+- `COMMAND_TIMEOUT_SECONDS=10` - ile sekund JARVIS czeka na polecenie po aktywacji.
+- `AWAKE_CONFIRMATION_TIMEOUT_SECONDS=10` - dodatkowe okno sluchania po pytaniu `Moge isc spac, szefie?`.
+- `POST_SPEECH_SLEEP_DELAY_SECONDS=5.0` - pauza po zakonczeniu TTS zanim UI wroci do `SLEEPING`.
+- `MICROPHONE_SENSITIVITY=normal` - czulosc mikrofonu: `high`, `normal`, `low`.
 - `SPEECH_END_SILENCE_SECONDS=0.9` - po takiej ciszy program konczy nagrywanie.
-- `SPEECH_RMS_THRESHOLD=500` - prog glosnosci dla wykrywania mowy.
+- `SPEECH_RMS_THRESHOLD=500` - reczny prog glosnosci dla wykrywania mowy, uzywany gdy nie ustawisz `MICROPHONE_SENSITIVITY`.
 
 ## Uruchomienie
 
+Glowne uruchomienie programu:
+
 ```powershell
-python main.py
+.\Uruchom_JARVIS.bat
 ```
+
+To jest domyslne wejscie do JARVISA. Plik startowy uruchamia backend, otwiera okno aplikacji i korzysta z konfiguracji `.env`.
+Przy starcie program sprawdza `.env`, klucz API i domyslny mikrofon. Jesli mikrofon jest niedostepny, JARVIS pokaze komunikat i przejdzie w awaryjny tryb tekstowy.
+
+Tryb deweloperski bez pliku `.bat`:
+
+```powershell
+python jarvis_app.py
+```
+
+Tryb terminalowy/debug:
+
+```powershell
+python jarvis_terminal.py
+```
+
+Przy `INPUT_MODE=wake` aplikacja webowa po starcie przechodzi w tryb nasluchu frazy aktywacyjnej. Cykl pracy to: `SLEEPING -> WAKE_DETECTED -> LISTENING_COMMAND -> AWAKE_CONFIRM -> THINKING -> SPEAKING -> SLEEPING`. Kazdy rozpoznany fragment nasluchu pokazuje w UI jako transkrypcje robocza, ale nie wysyla go do LLM i nie odpowiada, dopoki nie uslyszy frazy `jarvis śpisz?`. Po aktywacji JARVIS mowi krotko `Słucham.` i czeka `COMMAND_TIMEOUT_SECONDS` sekund na polecenie. Jesli nic nie uslyszy, pyta `Moge isc spac, szefie?` i slucha jeszcze przez `AWAKE_CONFIRMATION_TIMEOUT_SECONDS` sekund. Do historii rozmowy zapisuje dopiero polecenie wypowiedziane po aktywacji. Rowniez tekst wpisany w UI nie trafia do LLM w trybie wake, chyba ze zawiera fraze aktywacyjna albo jest lokalna komenda zaczynajaca sie od `/`.
 
 Przydatne komendy w aplikacji:
 
@@ -110,12 +145,18 @@ Przydatne komendy w aplikacji:
 /task add naprawic konfiguracje Chroma
 /task list
 /task done 1
+/task remove 1
 /project jarvis
 /project log Dodalem tryb aktywacji glosem.
 /briefing
 /stop
 /zapamietaj Studiuje mechatronike i buduje asystenta AI.
 /pamiec
+/memory review
+/memory edit 1 Nowa tresc wpisu pamieci.
+/memory remove 1
+/feedback dobra
+/feedback zla
 /rag status
 /rag index
 /voice off
@@ -124,12 +165,66 @@ Przydatne komendy w aplikacji:
 exit
 ```
 
+Mozesz tez zapytac JARVISA naturalnie o komendy, np. `jak moge cie wylaczyc?`.
+Asystent korzysta z lokalnego katalogu komend i powinien odpowiedziec:
+`mozesz mnie wylaczyc za pomoca zwyklego jarvis wylacz sie`.
+
+Glosowe komendy lokalne po aktywacji:
+
+```txt
+stop
+jarvis stop
+przestan
+koniec
+skoncz
+jarvis wylacz sie
+```
+
+Komendy `stop`, `jarvis stop`, `przestan`, `koniec` i `skoncz` przerywaja TTS. Komenda `jarvis wylacz sie` zapisuje dane, wysyla do UI sygnal zamkniecia strony i konczy dzialanie programu.
+
+### Function Calling 2.0
+
+Narzędzia JARVISA maja klasy ryzyka:
+
+```txt
+safe
+requires_confirmation
+dangerous
+```
+
+Operacje takie jak usuwanie zadan albo edycja/usuwanie pamieci wymagaja potwierdzenia `potwierdzam`. Czyszczenie calej pamieci wymaga mocniejszego potwierdzenia `potwierdzam wyczysc pamiec`.
+
+Wywolania narzedzi sa logowane w:
+
+```txt
+data/tool_calls.json
+```
+
+Obecne narzedzia obejmuja zadania, profil, projekt, pamiec i wyszukiwanie komend.
+
+### Kokpit UI
+
+Panel aplikacji pokazuje:
+
+```txt
+aktualny stan: SLEEPING, LISTENING, THINKING, SPEAKING
+ostatnia transkrypcje wake oddzielona od odpowiedzi
+zadania
+aktywny projekt
+pamiec
+status bramki LLM: LLM ACTIVE albo LLM BLOCKED
+```
+
+W trybie wake LLM jest zablokowany do momentu frazy `jarvis śpisz?`.
+Przycisk `CLEAR LOG` czysci robocze transkrypcje w UI. Przycisk `HISTORY ON/OFF`
+wlacza albo wylacza zapis historii rozmowy do `data/conversation_history.json`.
+
 W trybie `/input voice` nacisnij Enter i mow normalnie. Program zakonczy nagrywanie po chwili ciszy, a nie po sztywnych 5 sekundach.
 
 W trybie `/input wake` program nasluchuje krotkich fragmentow audio i czeka na fraze:
 
 ```txt
-jarvis aktywacja
+jarvis śpisz?
 ```
 
 Po wykryciu frazy nagrywa nastepna wypowiedz jako polecenie. Ten tryb wysyla krotkie nagrania do STT, wiec zuzywa API czesciej niz zwykle `/input voice`.
@@ -213,6 +308,31 @@ Pracuje nad projektem Jarvis.
 
 asystent zapyta, czy zapisac ten fakt w pamieci stalej.
 
+Pamiec moze miec typy:
+
+```txt
+profile
+preferences
+projects
+facts
+decisions
+```
+
+Przeglad pamieci:
+
+```txt
+/memory review
+```
+
+Starsze wiadomosci rozmowy sa streszczane do `data/conversation_summary.json`, a plik `conversation_history.json` nadal trzyma ostatnie 40 wiadomosci.
+
+Ocena odpowiedzi:
+
+```txt
+/feedback dobra
+/feedback zla
+```
+
 ## Lokalny RAG
 
 1. Wrzuc pliki `.txt`, `.md`, `.pdf`, `.py`, `.json`, `.csv`, `.yaml` do `data/documents/`.
@@ -223,6 +343,22 @@ asystent zapyta, czy zapisac ten fakt w pamieci stalej.
 Indeks ChromaDB zapisuje sie w `data/vector_store/`. Jest to plik roboczy, wiec nie musi trafiac do repozytorium.
 
 Jesli ChromaDB nie uruchomi sie lokalnie, program przechodzi na prosty fallback tekstowy dla plikow z `data/documents/` zamiast przerywac rozmowe. To jest wolniejsze i mniej semantyczne niz wektory, ale wystarcza do podstawowego MVP.
+
+Mozesz tez poprosic naturalnie:
+
+```txt
+Jarvis, przeczytaj dokument decyzje.md i stresc decyzje.
+```
+
+JARVIS probuje odnalezc dokument po nazwie, dolacza jego tresc jako kontekst i wymusza zrodlo w odpowiedzi w formie `Zrodlo: nazwa_pliku`.
+
+## Prywatnosc
+
+- Bez frazy aktywacyjnej `jarvis śpisz?` polecenia glosowe nie sa wysylane do LLM.
+- Logi pokazują podglad tekstu wysylanego do OpenAI jako `OpenAI payload preview`.
+- Zapis historii mozna wylaczyc przez `HISTORY_ENABLED=false` albo w kokpicie UI.
+- Robocze transkrypcje wake mozna wyczyscic przyciskiem `CLEAR LOG`.
+- Trwale zmiany, takie jak usuwanie zadan lub pamieci, maja potwierdzenia w function calling.
 
 ## Testy
 

@@ -9,7 +9,10 @@ from src.json_store import read_json, write_json
 
 class AssistantStatus(StrEnum):
     SLEEPING = "sleeping"
+    WAKE_DETECTED = "wake_detected"
     LISTENING = "listening"
+    LISTENING_COMMAND = "listening_command"
+    AWAKE_CONFIRM = "awake_confirm"
     THINKING = "thinking"
     SPEAKING = "speaking"
     IDLE = "idle"
@@ -51,6 +54,9 @@ class AssistantStateStore:
     def set_status(self, status: AssistantStatus) -> None:
         self._state["last_status"] = status.value
         self.save()
+
+    def get_status(self) -> str:
+        return str(self._state.get("last_status", AssistantStatus.IDLE.value))
 
     def save(self) -> None:
         write_json(self.settings.assistant_state_path, self._state)

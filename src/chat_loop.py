@@ -3,20 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from config import NAZWA_ASYSTENTA
-from src.assistant_state import AssistantStateStore, AssistantStatus
+from src.assistant_state import AssistantStatus
 from src.config import load_settings
 from src.conversation_engine import ConversationEngine
-from src.logger import configure_logging
+from src.logger import configure_logging, get_logger
 from src.long_term_memory import zapisz_pamiec_stala
 from src.memory_store import zapisz_historie
-from src.stt import SpeechToTextClient
 from src.terminal_ui import TerminalUI
+from src.voice_commands import is_shutdown_command, is_tts_stop_command
 
 
 def uruchom_petle_rozmowy() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
-
     engine = ConversationEngine(settings)
     ui = TerminalUI(settings)
 
@@ -32,16 +31,15 @@ def uruchom_petle_rozmowy() -> None:
             ui.status(AssistantStatus.SLEEPING if input_mode == "wake" else AssistantStatus.IDLE)
             tekst_uzytkownika, input_mode = _pobierz_wejscie(
                 input_mode,
-                engine.stt_client,
+                engine,
                 ui,
-                engine.assistant_state,
             )
             tekst_uzytkownika = tekst_uzytkownika.strip()
 
             if not tekst_uzytkownika:
                 continue
 
-            if tekst_uzytkownika.lower() in {"exit", "quit", "/exit", "/quit"}:
+            if tekst_uzytkownika.lower() in {"exit", "quit", "/exit", "/quit"} or is_shutdown_command(tekst_uzytkownika):
                 zapisz_historie(engine.historia, settings.history_path)
                 zapisz_pamiec_stala(engine.pamiec_stala, settings.long_term_memory_path)
                 print(f"{NAZWA_ASYSTENTA}: Zapisalem dane i koncze dzialanie.")
@@ -81,7 +79,7 @@ def _print_startup(input_mode: str, history_count: int, memory_count: int) -> No
     print("Zakres MVP: rozmowa, pamiec lokalna, RAG, STT i TTS.")
     print("Wpisz '/pomoc', aby zobaczyc komendy. Wpisz 'exit', aby zakonczyc.")
     print(f"Aktualny tryb wejscia: {input_mode}.")
-    print("Tryb wake nasluchuje frazy aktywacyjnej: 'jarvis aktywacja'.\n")
+    print("Tryb wake nasluchuje frazy aktywacyjnej: 'jarvis śpisz?'.\n")
 
     if history_count:
         print(f"{NAZWA_ASYSTENTA}: Wczytalem historie rozmowy: {history_count} wiadomosci.")
@@ -93,10 +91,12 @@ def _print_startup(input_mode: str, history_count: int, memory_count: int) -> No
 
 def _pobierz_wejscie(
     input_mode: str,
-    stt_client: SpeechToTextClient,
+    engine: ConversationEngine,
     ui: TerminalUI,
-    assistant_state: AssistantStateStore,
 ) -> tuple[str, str]:
+    stt_client = engine.stt_client
+    assistant_state = engine.assistant_state
+
     if input_mode == "voice":
         decyzja = input("Ty [Enter=nagraj, tekst=napisz, /input text=klawiatura]: ").strip()
         if decyzja:
@@ -128,16 +128,37 @@ def _pobierz_wejscie(
             if not transkrypcja:
                 continue
 
+            get_logger(__name__).info("Wake scan heard fragment: %s", transkrypcja)
+            if is_shutdown_command(transkrypcja) or is_tts_stop_command(transkrypcja):
+                return transkrypcja, input_mode
+
             if stt_client.contains_wake_phrase(transkrypcja):
-                print(f"{NAZWA_ASYSTENTA}: Aktywacja wykryta. Slucham polecenia...")
-                assistant_state.set_status(AssistantStatus.LISTENING)
-                ui.status(AssistantStatus.LISTENING)
-                polecenie = stt_client.listen_and_transcribe()
+                get_logger(__name__).info("Wake phrase detected. Waiting for command.")
+                print(f"{NAZWA_ASYSTENTA}: Aktywacja wykryta.")
+                assistant_state.set_status(AssistantStatus.WAKE_DETECTED)
+                ui.status(AssistantStatus.WAKE_DETECTED)
+                engine.acknowledge_wake_detected()
+                print(f"{NAZWA_ASYSTENTA}: Słucham.")
+                assistant_state.set_status(AssistantStatus.LISTENING_COMMAND)
+                ui.status(AssistantStatus.LISTENING_COMMAND)
+                polecenie, _utterance_end_time = engine.listen_for_command()
                 if polecenie:
                     print(f"Ty (STT): {polecenie}")
                     return polecenie, input_mode
 
-                print(f"{NAZWA_ASYSTENTA}: Nie uslyszalem polecenia po aktywacji.\n")
+                assistant_state.set_status(AssistantStatus.AWAKE_CONFIRM)
+                ui.status(AssistantStatus.AWAKE_CONFIRM)
+                prompt = "Mogę iść spać, szefie?"
+                print(f"{NAZWA_ASYSTENTA}: {prompt}")
+                engine.tts_client.speak(prompt, blocking=True)
+                polecenie, _utterance_end_time = engine.listen_for_command(
+                    max_seconds=stt_client.settings.awake_confirmation_timeout_seconds
+                )
+                if polecenie:
+                    print(f"Ty (STT): {polecenie}")
+                    return polecenie, input_mode
+
+                print(f"{NAZWA_ASYSTENTA}: Wracam do snu.\n")
                 return "", input_mode
 
     return input("Ty: "), input_mode

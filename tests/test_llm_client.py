@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from src.llm import LLMClient
 from src.llm_client import przygotuj_historie_do_api
 from src.config import load_settings
@@ -32,3 +34,59 @@ def test_build_instructions_zawiera_styl_jarvisa_i_guardrail_przeciw_halucynacjo
     assert "Iron Mana" in instrukcje
     assert "lekko ironiczny" in instrukcje
     assert "Nie wymyslasz faktow" in instrukcje
+    assert "Katalog lokalnych komend JARVISA" in instrukcje
+    assert "jarvis wylacz sie" in instrukcje
+
+
+def test_generate_response_obsluguje_function_calling_i_odsyla_wynik_narzedzia():
+    function_call = SimpleNamespace(
+        type="function_call",
+        call_id="call_123",
+        name="add_task",
+        arguments='{"title": "Sprawdzic testy function calling"}',
+    )
+    first_response = SimpleNamespace(output=[function_call], output_text="")
+    final_response = SimpleNamespace(output=[], output_text="Dodalem zadanie do listy.")
+    fake_client = _FakeOpenAIClient([first_response, final_response])
+    executed_tools = []
+
+    def execute_tool(name, arguments):
+        executed_tools.append((name, arguments))
+        return '{"ok": true, "result": {"id": 1}}'
+
+    client = LLMClient()
+    client._client = fake_client
+
+    result = client.generate_response(
+        history=[{"role": "user", "content": "Dodaj zadanie z testami."}],
+        long_term_memory=[],
+        tools=[{"type": "function", "name": "add_task"}],
+        tool_executor=execute_tool,
+    )
+
+    assert result == "Dodalem zadanie do listy."
+    assert executed_tools == [
+        ("add_task", {"title": "Sprawdzic testy function calling"})
+    ]
+    assert len(fake_client.responses.requests) == 2
+    assert fake_client.responses.requests[0]["tool_choice"] == "auto"
+    assert {
+        "type": "function_call_output",
+        "call_id": "call_123",
+        "output": '{"ok": true, "result": {"id": 1}}',
+    } in fake_client.responses.requests[1]["input"]
+
+
+class _FakeOpenAIClient:
+    def __init__(self, responses):
+        self.responses = _FakeResponses(responses)
+
+
+class _FakeResponses:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.requests = []
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        return self._responses.pop(0)

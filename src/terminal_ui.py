@@ -26,7 +26,10 @@ class TerminalUI:
         if self._console:
             color = {
                 AssistantStatus.SLEEPING: "dim cyan",
+                AssistantStatus.WAKE_DETECTED: "green",
                 AssistantStatus.LISTENING: "cyan",
+                AssistantStatus.LISTENING_COMMAND: "bright_cyan",
+                AssistantStatus.AWAKE_CONFIRM: "bright_magenta",
                 AssistantStatus.THINKING: "yellow",
                 AssistantStatus.SPEAKING: "green",
                 AssistantStatus.IDLE: "dim",

@@ -3,6 +3,7 @@ from pathlib import Path
 from src.memory_store import (
     MAKSYMALNA_LICZBA_WIADOMOSCI_HISTORII,
     ogranicz_historie,
+    wczytaj_podsumowanie_historii,
     wczytaj_historie,
     zapisz_historie,
     wyczysc_historie,
@@ -82,6 +83,26 @@ def test_wczytaj_historie_z_obiektem_zamiast_listy_zwraca_pusta_liste(tmp_path: 
     wynik = wczytaj_historie(sciezka_testowa)
 
     assert wynik == [], "historia musi byc lista wiadomosci, inaczej engine dostanie zly format"
+
+
+def test_zapisz_historie_streszcza_starsze_wiadomosci(tmp_path: Path):
+    sciezka_historii = tmp_path / "conversation_history.json"
+    sciezka_podsumowania = tmp_path / "conversation_summary.json"
+    historia = [
+        {"role": "user", "content": f"Wiadomosc historyczna {indeks}"}
+        for indeks in range(45)
+    ]
+
+    zapisz_historie(
+        historia,
+        sciezka_historii,
+        limit=40,
+        sciezka_podsumowania=sciezka_podsumowania,
+    )
+
+    assert len(wczytaj_historie(sciezka_historii)) == 40
+    podsumowanie = wczytaj_podsumowanie_historii(sciezka_podsumowania)
+    assert "Zarchiwizowano 5 starszych wiadomosci" in podsumowanie
 
 
 def test_wczytaj_historie_gdy_plik_nie_istnieje(tmp_path: Path):

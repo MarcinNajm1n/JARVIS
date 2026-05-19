@@ -5,47 +5,27 @@ from typing import Any
 
 from config import MODEL_LLM, NAZWA_ASYSTENTA
 from src.briefing import build_briefing
+from src.command_catalog import format_command_help
 from src.debug_utils import czy_debug_wlaczony, ustaw_debug
+from src.feedback_store import FeedbackStore
 from src.long_term_memory import (
     SCIEZKA_PAMIECI_STALEJ,
     dodaj_do_pamieci_stalej,
+    edytuj_wpis_pamieci,
     formatuj_pamiec_stala,
+    formatuj_memory_review,
+    usun_wpis_pamieci,
     wyczysc_pamiec_stala,
     zapisz_pamiec_stala,
 )
 from src.memory_store import SCIEZKA_HISTORII, wyczysc_historie
 from src.response_modes import list_modes
+from src.voice_commands import is_tts_stop_command
 from src.voice_state import czy_mowa_wlaczona, ustaw_mowe
 
 
 def pokaz_pomoc() -> None:
-    print("Dostepne komendy:")
-    print("/zapamietaj tresc       - zapisz informacje do pamieci stalej")
-    print("/pamiec                 - pokaz pamiec stala")
-    print("/wyczysc_pamiec         - wyczysc pamiec stala")
-    print("/wyczysc_historie       - wyczysc historie rozmowy")
-    print("/reset                  - zresetuj kontekst rozmowy")
-    print("/status                 - pokaz stan historii, pamieci i glosu")
-    print("/model                  - pokaz aktualny model LLM")
-    print("/voice on/off/status    - wlacz, wylacz lub sprawdz TTS")
-    print("/stop                   - przerwij aktualne odtwarzanie TTS")
-    print("/debug on/off/status    - wlacz, wylacz lub sprawdz debug")
-    print("/rag status             - pokaz stan lokalnej bazy wiedzy")
-    print("/rag index              - przebuduj indeks dokumentow")
-    print("/mode nazwa             - tryb: jarvis, mentor, szybki, techniczny")
-    print("/profile                - pokaz profil uzytkownika")
-    print("/profile set k v        - ustaw pole profilu")
-    print("/task add tresc         - dodaj zadanie")
-    print("/task list              - pokaz zadania")
-    print("/task done id           - oznacz zadanie jako wykonane")
-    print("/project nazwa          - ustaw aktywny projekt")
-    print("/project log tresc      - dodaj notatke do projektu")
-    print("/briefing               - dzienny briefing operacyjny")
-    print("/input text             - przelacz wejscie na klawiature")
-    print("/input voice            - przelacz wejscie na mikrofon")
-    print("/input wake             - nasluchuj frazy 'jarvis aktywacja'")
-    print("/pomoc                  - pokaz dostepne komendy")
-    print("exit                    - zakoncz program")
+    print(format_command_help())
 
 
 def obsluz_komende(
@@ -88,7 +68,7 @@ def obsluz_komende(
         _obsluz_komende_voice(tekst)
         return True, historia, pamiec_stala
 
-    if tekst in {"/stop", "stop", "przerwij", "cisza"}:
+    if tekst == "/stop" or is_tts_stop_command(tekst_uzytkownika) or tekst == "przerwij":
         if tts_client is not None:
             tts_client.stop()
         print(f"{NAZWA_ASYSTENTA}: Przerywam odtwarzanie.")
@@ -159,6 +139,18 @@ def obsluz_komende(
     if tekst == "/pamiec":
         print(formatuj_pamiec_stala(pamiec_stala))
         print()
+        return True, historia, pamiec_stala
+
+    if tekst.startswith("/memory"):
+        pamiec_stala = _obsluz_komende_memory(
+            tekst_uzytkownika,
+            pamiec_stala,
+            sciezka_pamieci_stalej,
+        )
+        return True, historia, pamiec_stala
+
+    if tekst.startswith("/feedback"):
+        _obsluz_komende_feedback(tekst_uzytkownika)
         return True, historia, pamiec_stala
 
     if tekst == "/reset":
@@ -409,3 +401,56 @@ def _parse_int(value: str) -> int:
         return int(value.strip())
     except ValueError:
         return -1
+
+
+def _obsluz_komende_memory(
+    tekst_uzytkownika: str,
+    pamiec_stala: list,
+    sciezka_pamieci_stalej: Path,
+) -> list:
+    parts = tekst_uzytkownika.split(maxsplit=3)
+    action = parts[1].lower() if len(parts) >= 2 else "review"
+
+    if action in {"review", "status", "pokaz"}:
+        print(formatuj_memory_review(pamiec_stala))
+        print()
+        return pamiec_stala
+
+    if action in {"edit", "edytuj"} and len(parts) >= 4:
+        entry_id = _parse_int(parts[2])
+        entry = edytuj_wpis_pamieci(pamiec_stala, entry_id, content=parts[3])
+        if entry is None:
+            print(f"{NAZWA_ASYSTENTA}: Nie znalazlem wpisu pamieci #{entry_id}.")
+        else:
+            zapisz_pamiec_stala(pamiec_stala, sciezka_pamieci_stalej)
+            print(f"{NAZWA_ASYSTENTA}: Zaktualizowalem wpis pamieci #{entry_id}.")
+        print()
+        return pamiec_stala
+
+    if action in {"remove", "usun"} and len(parts) >= 3:
+        entry_id = _parse_int(parts[2])
+        if usun_wpis_pamieci(pamiec_stala, entry_id):
+            zapisz_pamiec_stala(pamiec_stala, sciezka_pamieci_stalej)
+            print(f"{NAZWA_ASYSTENTA}: Usunalem wpis pamieci #{entry_id}.")
+        else:
+            print(f"{NAZWA_ASYSTENTA}: Nie znalazlem wpisu pamieci #{entry_id}.")
+        print()
+        return pamiec_stala
+
+    print(f"{NAZWA_ASYSTENTA}: Uzyj: /memory review, /memory edit id tresc albo /memory remove id")
+    print()
+    return pamiec_stala
+
+
+def _obsluz_komende_feedback(tekst_uzytkownika: str) -> None:
+    parts = tekst_uzytkownika.split(maxsplit=2)
+    if len(parts) < 2 or parts[1].lower() not in {"dobra", "zla", "zła"}:
+        print(f"{NAZWA_ASYSTENTA}: Uzyj: /feedback dobra albo /feedback zla")
+        print()
+        return
+
+    rating = "dobra" if parts[1].lower() == "dobra" else "zla"
+    note = parts[2] if len(parts) >= 3 else ""
+    FeedbackStore().add(rating, note)
+    print(f"{NAZWA_ASYSTENTA}: Zapisalem feedback: {rating}.")
+    print()

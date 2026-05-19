@@ -4,10 +4,33 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JARVIS</title>
-    <link rel="stylesheet" href="./styles.css?v=3" />
+    <link rel="stylesheet" href="./styles.css?v=4" />
   </head>
   <body>
     <main class="stage">
+      <section class="cockpit left-panel" aria-label="Status">
+        <div class="panel-block">
+          <h2>STATE</h2>
+          <p id="statusPanel">IDLE</p>
+        </div>
+        <div class="panel-block">
+          <h2>LLM GATE</h2>
+          <p id="llmGate">BLOCKED</p>
+        </div>
+        <div class="panel-block">
+          <h2>WAKE TRANSCRIPT</h2>
+          <p id="wakeTranscript"></p>
+        </div>
+        <div class="panel-block setup-warning" id="setupWarningBlock" hidden>
+          <h2>SETUP</h2>
+          <p id="setupWarning"></p>
+        </div>
+        <div class="panel-actions">
+          <button id="clearTranscriptButton" type="button" title="Wyczysc transkrypcje">CLEAR LOG</button>
+          <button id="historyToggleButton" type="button" title="Przelacz zapis historii">HISTORY ON</button>
+        </div>
+      </section>
+
       <section class="core-wrap" aria-label="JARVIS">
         <div class="signal-ring signal-ring-a"></div>
         <div class="signal-ring signal-ring-b"></div>
@@ -37,6 +60,10 @@
           <span>LOW LATENCY</span>
         </div>
         <p id="transcript"></p>
+        <div class="memory-actions" id="memoryActions" hidden>
+          <button id="saveMemoryButton" type="button" title="Zapisz fakt">SAVE MEMORY</button>
+          <button id="ignoreMemoryButton" type="button" title="Odrzuc fakt">IGNORE</button>
+        </div>
         <div class="controls">
           <button id="micButton" type="button" title="Start nagrywania">REC</button>
           <button id="endRecordButton" type="button" title="Zakoncz nagrywanie">END REC</button>
@@ -46,7 +73,22 @@
           <input id="textInput" type="text" autocomplete="off" placeholder="Polecenie..." />
         </form>
       </section>
+
+      <section class="cockpit right-panel" aria-label="Context">
+        <div class="panel-block">
+          <h2>TASKS</h2>
+          <ul id="taskPanel"></ul>
+        </div>
+        <div class="panel-block">
+          <h2>PROJECT</h2>
+          <p id="projectPanel"></p>
+        </div>
+        <div class="panel-block">
+          <h2>MEMORY</h2>
+          <p id="memoryPanel"></p>
+        </div>
+      </section>
     </main>
-    <script src="./app.js?v=3"></script>
+    <script src="./app.js?v=4"></script>
   </body>
 </html>

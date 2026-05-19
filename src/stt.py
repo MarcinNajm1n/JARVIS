@@ -222,9 +222,14 @@ class SpeechToTextClient:
         if normalized_wake_phrase and normalized_wake_phrase in normalized_text:
             return True
 
-        wake_aliases = {"jarvis", "dzarvis", "jervis"}
-        has_name = any(alias in normalized_text for alias in wake_aliases)
-        return has_name and "aktywacja" in normalized_text
+        wake_aliases = {
+            "jarvis spisz",
+            "jarvis czy spisz",
+            "dzarvis spisz",
+            "jervis spisz",
+            "jarwis spisz",
+        }
+        return any(alias in normalized_text for alias in wake_aliases)
 
     @staticmethod
     def _calculate_rms(audio_data) -> float:

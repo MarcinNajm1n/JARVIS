@@ -10,10 +10,24 @@ from src.assistant_state import AssistantStateStore, AssistantStatus
 from src.auto_memory import extract_memory_candidate
 from src.command_handler import obsluz_komende
 from src.config import Settings, load_settings
+from src.function_tools import (
+    JARVIS_FUNCTION_TOOLS,
+    JarvisToolContext,
+    execute_jarvis_tool,
+)
 from src.llm import LLMClient, Message
 from src.logger import get_logger
-from src.long_term_memory import wczytaj_pamiec_stala, zapisz_pamiec_stala
-from src.memory_store import wczytaj_historie, zapisz_historie
+from src.long_term_memory import (
+    dodaj_wpis_pamieci,
+    normalizuj_wpisy_pamieci,
+    wczytaj_pamiec_stala,
+    zapisz_pamiec_stala,
+)
+from src.memory_store import (
+    wczytaj_historie,
+    wczytaj_podsumowanie_historii,
+    zapisz_historie,
+)
 from src.profile_store import UserProfileStore
 from src.project_store import ProjectStore
 from src.rag import RAGMemory
@@ -64,6 +78,7 @@ class LatencyTracker:
 class ConversationEngine:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or load_settings()
+        self._logger = get_logger(__name__)
         self.llm_client = LLMClient(self.settings)
         self.stt_client = SpeechToTextClient(self.settings)
         self.tts_client = TextToSpeechClient(self.settings)
@@ -74,6 +89,10 @@ class ConversationEngine:
         self.task_store = TaskStore(self.settings)
         self.project_store = ProjectStore(self.settings)
         self.historia: list[Message] = wczytaj_historie(self.settings.history_path)
+        self.history_enabled = self.settings.history_enabled
+        self.podsumowanie_historii = wczytaj_podsumowanie_historii(
+            self.settings.conversation_summary_path
+        )
         self.pamiec_stala = wczytaj_pamiec_stala(self.settings.long_term_memory_path)
         self._active_speech_queue: ChunkedSpeechQueue | None = None
 
@@ -81,6 +100,18 @@ class ConversationEngine:
         self.assistant_state.set_status(AssistantStatus.LISTENING)
         text = self.stt_client.listen_and_transcribe() or ""
         return text, time.monotonic()
+
+    def listen_for_command(self, max_seconds: int | None = None) -> tuple[str, float]:
+        self.assistant_state.set_status(AssistantStatus.LISTENING_COMMAND)
+        text = self.stt_client.listen_and_transcribe(
+            max_seconds=max_seconds or self.settings.command_timeout_seconds
+        ) or ""
+        return text, time.monotonic()
+
+    def acknowledge_wake_detected(self) -> None:
+        self.assistant_state.set_status(AssistantStatus.WAKE_DETECTED)
+        if czy_mowa_wlaczona():
+            self.tts_client.speak("Słucham.", blocking=True)
 
     def stop_audio(self) -> None:
         if self._active_speech_queue is not None:
@@ -107,6 +138,8 @@ class ConversationEngine:
         self._maybe_auto_memory(user_text)
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
+        self._logger.info("Sending command to LLM. Source: generate_response; length: %s", len(user_text))
+        self._logger.info("OpenAI payload preview: %s", user_text[:240])
         response = self.llm_client.generate_response(
             history=self.historia,
             long_term_memory=self.pamiec_stala,
@@ -118,9 +151,12 @@ class ConversationEngine:
             project_context=self.project_store.summarize(
                 self.assistant_state.get_active_project()
             ),
+            conversation_summary=self.podsumowanie_historii,
+            tools=self._get_function_tools(),
+            tool_executor=self._execute_function_tool,
         )
         self.historia.append({"role": "assistant", "content": response})
-        zapisz_historie(self.historia, self.settings.history_path)
+        self._save_history()
 
         if speak and czy_mowa_wlaczona() and not response.startswith("Wystapil blad"):
             self.assistant_state.set_status(AssistantStatus.SPEAKING)
@@ -145,7 +181,40 @@ class ConversationEngine:
         self._maybe_auto_memory(user_text)
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
+        self._logger.info("Sending command to LLM. Source: stream_response; length: %s", len(user_text))
+        self._logger.info("OpenAI payload preview: %s", user_text[:240])
         yield ConversationEvent(AssistantStatus.THINKING.value.upper(), "")
+
+        if self.settings.function_calling_enabled:
+            final_response = self.llm_client.generate_response(
+                history=self.historia,
+                long_term_memory=self.pamiec_stala,
+                rag_context=self.rag_memory.retrieve_context(user_text),
+                user_profile=self.profile_store.format_for_prompt(),
+                response_mode_instruction=get_mode_instruction(
+                    self.assistant_state.get_response_mode()
+                ),
+                project_context=self.project_store.summarize(
+                    self.assistant_state.get_active_project()
+                ),
+                conversation_summary=self.podsumowanie_historii,
+                tools=self._get_function_tools(),
+                tool_executor=self._execute_function_tool,
+            )
+            yield ConversationEvent(AssistantStatus.THINKING.value.upper(), final_response)
+            if (
+                czy_mowa_wlaczona()
+                and final_response
+                and not final_response.startswith("Wystapil blad")
+            ):
+                self.assistant_state.set_status(AssistantStatus.SPEAKING)
+                yield ConversationEvent(AssistantStatus.SPEAKING.value.upper(), "")
+                self.tts_client.speak(final_response, blocking=False)
+
+            self.historia.append({"role": "assistant", "content": final_response})
+            self._save_history()
+            yield ConversationEvent(AssistantStatus.IDLE.value.upper(), final_response)
+            return
 
         tracker = LatencyTracker(self.settings, utterance_end_time)
         speech_queue = None
@@ -170,6 +239,7 @@ class ConversationEngine:
             project_context=self.project_store.summarize(
                 self.assistant_state.get_active_project()
             ),
+            conversation_summary=self.podsumowanie_historii,
         )
 
         for chunk in stream:
@@ -194,10 +264,10 @@ class ConversationEngine:
         ):
             self.assistant_state.set_status(AssistantStatus.SPEAKING)
             yield ConversationEvent(AssistantStatus.SPEAKING.value.upper(), "")
-            self.tts_client.speak(final_response, blocking=True)
+            self.tts_client.speak(final_response, blocking=False)
 
         self.historia.append({"role": "assistant", "content": final_response})
-        zapisz_historie(self.historia, self.settings.history_path)
+        self._save_history()
         yield ConversationEvent(AssistantStatus.IDLE.value.upper(), final_response)
 
     def _handle_command(self, user_text: str) -> tuple[bool, str]:
@@ -216,11 +286,63 @@ class ConversationEngine:
         )
         return command_handled, "Komenda wykonana." if command_handled else ""
 
+    def _get_function_tools(self) -> list[dict] | None:
+        if not self.settings.function_calling_enabled:
+            return None
+        return JARVIS_FUNCTION_TOOLS
+
+    def _execute_function_tool(self, name: str, arguments: dict) -> str:
+        context = JarvisToolContext(
+            assistant_state=self.assistant_state,
+            profile_store=self.profile_store,
+            task_store=self.task_store,
+            project_store=self.project_store,
+            long_term_memory=self.pamiec_stala,
+            long_term_memory_path=self.settings.long_term_memory_path,
+            tool_call_log_path=self.settings.tool_call_log_path,
+        )
+        return execute_jarvis_tool(name, arguments, context)
+
+    def get_memory_candidate(self, user_text: str) -> str | None:
+        if not self.settings.auto_memory_enabled:
+            return None
+        candidate = extract_memory_candidate(user_text)
+        if not candidate:
+            return None
+        existing = {
+            entry["content"].lower()
+            for entry in normalizuj_wpisy_pamieci(self.pamiec_stala)
+        }
+        if candidate.lower() in existing:
+            return None
+        return candidate
+
+    def save_memory_candidate(self, candidate: str, memory_type: str = "facts") -> bool:
+        entry = dodaj_wpis_pamieci(self.pamiec_stala, candidate, memory_type)
+        if entry is None:
+            return False
+        zapisz_pamiec_stala(self.pamiec_stala, self.settings.long_term_memory_path)
+        return True
+
+    def _save_history(self) -> None:
+        if not self.history_enabled:
+            self._logger.info("History persistence disabled; skipping conversation_history write.")
+            return
+        zapisz_historie(
+            self.historia,
+            self.settings.history_path,
+            sciezka_podsumowania=self.settings.conversation_summary_path,
+        )
+        self.historia = wczytaj_historie(self.settings.history_path)
+        self.podsumowanie_historii = wczytaj_podsumowanie_historii(
+            self.settings.conversation_summary_path
+        )
+
     def _maybe_auto_memory(self, user_text: str) -> None:
         if not self.settings.auto_memory_enabled:
             return
-        candidate = extract_memory_candidate(user_text)
-        if not candidate or candidate in self.pamiec_stala:
+        candidate = self.get_memory_candidate(user_text)
+        if not candidate:
             return
         if self.settings.low_latency_mode:
             return
@@ -230,8 +352,7 @@ class ConversationEngine:
             f"'{candidate}'. Zapisac? (tak/nie): "
         ).strip().lower()
         if decision == "tak":
-            self.pamiec_stala.append(candidate)
-            zapisz_pamiec_stala(self.pamiec_stala, self.settings.long_term_memory_path)
+            self.save_memory_candidate(candidate)
 
     @staticmethod
     def _flush_ready_tts_chunks(buffer: str, speech_queue: ChunkedSpeechQueue) -> str:

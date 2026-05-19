@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Callable
 
 from openai import OpenAI, OpenAIError
 
+from src.command_catalog import format_command_catalog_for_prompt
 from src.config import Settings, load_settings, require_openai_api_key
 from src.logger import get_logger
+from src.long_term_memory import formatuj_pamiec_do_promptu
 
 
-Message = dict[str, str]
+Message = dict[str, Any]
+ToolExecutor = Callable[[str, dict[str, Any]], str]
 
 
 @dataclass
@@ -40,6 +44,7 @@ class LLMClient:
         user_profile: str | None = None,
         response_mode_instruction: str | None = None,
         project_context: str | None = None,
+        conversation_summary: str | None = None,
     ) -> str:
         sections = [self.settings.system_prompt]
 
@@ -52,8 +57,13 @@ class LLMClient:
         if project_context:
             sections.append(f"Kontekst aktywnego projektu:\n{project_context}")
 
+        if conversation_summary:
+            sections.append(f"Skrot starszej rozmowy:\n{conversation_summary}")
+
+        sections.append(format_command_catalog_for_prompt())
+
         if long_term_memory:
-            memory_items = "\n".join(f"- {item}" for item in long_term_memory)
+            memory_items = formatuj_pamiec_do_promptu(long_term_memory)
             sections.append(
                 "Trwala pamiec uzytkownika:\n"
                 f"{memory_items}\n\n"
@@ -79,6 +89,9 @@ class LLMClient:
         user_profile: str | None = None,
         response_mode_instruction: str | None = None,
         project_context: str | None = None,
+        conversation_summary: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_executor: ToolExecutor | None = None,
     ) -> str:
         try:
             instructions = self.build_instructions(
@@ -87,21 +100,27 @@ class LLMClient:
                 user_profile=user_profile,
                 response_mode_instruction=response_mode_instruction,
                 project_context=project_context,
+                conversation_summary=conversation_summary,
             )
             input_messages = self.trim_history(history)
 
             self._logger.debug("Calling OpenAI model: %s", self.settings.llm_model)
-            response = self.client.responses.create(
-                model=self.settings.llm_model,
+            response = self._create_response(
                 instructions=instructions,
-                input=input_messages,
+                input_messages=input_messages,
+                tools=tools,
             )
 
-            output_text = getattr(response, "output_text", None)
-            if output_text:
-                return str(output_text).strip()
+            if tools and tool_executor:
+                return self._resolve_tool_calls(
+                    response=response,
+                    instructions=instructions,
+                    input_messages=input_messages,
+                    tools=tools,
+                    tool_executor=tool_executor,
+                )
 
-            return self._extract_text_from_response(response)
+            return self._extract_response_text(response)
 
         except OpenAIError as error:
             self._logger.exception("OpenAI LLM request failed")
@@ -113,6 +132,59 @@ class LLMClient:
             self._logger.exception("Unexpected LLM error")
             return f"Wystapil nieoczekiwany blad programu: {error}"
 
+    def _create_response(
+        self,
+        instructions: str,
+        input_messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Any:
+        request: dict[str, Any] = {
+            "model": self.settings.llm_model,
+            "instructions": instructions,
+            "input": input_messages,
+        }
+        if tools:
+            request["tools"] = tools
+            request["tool_choice"] = "auto"
+
+        return self.client.responses.create(**request)
+
+    def _resolve_tool_calls(
+        self,
+        response: Any,
+        instructions: str,
+        input_messages: list[Message],
+        tools: list[dict[str, Any]],
+        tool_executor: ToolExecutor,
+        max_rounds: int = 3,
+    ) -> str:
+        current_response = response
+        current_input: list[Any] = list(input_messages)
+
+        for _round in range(max_rounds):
+            function_calls = self._extract_function_calls(current_response)
+            if not function_calls:
+                return self._extract_response_text(current_response)
+
+            current_input.extend(getattr(current_response, "output", []) or [])
+            for function_call in function_calls:
+                result = tool_executor(function_call["name"], function_call["arguments"])
+                current_input.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": function_call["call_id"],
+                        "output": result,
+                    }
+                )
+
+            current_response = self._create_response(
+                instructions=instructions,
+                input_messages=current_input,
+                tools=tools,
+            )
+
+        return "Nie udalo sie zakonczyc wywolan narzedzi w bezpiecznym limicie rund."
+
     def stream_response(
         self,
         history: list[Message],
@@ -121,6 +193,7 @@ class LLMClient:
         user_profile: str | None = None,
         response_mode_instruction: str | None = None,
         project_context: str | None = None,
+        conversation_summary: str | None = None,
     ) -> Iterator[str]:
         try:
             instructions = self.build_instructions(
@@ -129,6 +202,7 @@ class LLMClient:
                 user_profile=user_profile,
                 response_mode_instruction=response_mode_instruction,
                 project_context=project_context,
+                conversation_summary=conversation_summary,
             )
             input_messages = self.trim_history(history)
 
@@ -155,6 +229,38 @@ class LLMClient:
         except Exception as error:
             self._logger.exception("Unexpected streaming LLM error")
             yield f"Wystapil nieoczekiwany blad programu: {error}"
+
+    @staticmethod
+    def _extract_function_calls(response: Any) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+
+        for output_item in getattr(response, "output", []) or []:
+            if getattr(output_item, "type", None) != "function_call":
+                continue
+
+            raw_arguments = getattr(output_item, "arguments", "{}") or "{}"
+            if isinstance(raw_arguments, dict):
+                arguments = raw_arguments
+            else:
+                arguments = json.loads(str(raw_arguments))
+
+            calls.append(
+                {
+                    "call_id": str(getattr(output_item, "call_id", "")),
+                    "name": str(getattr(output_item, "name", "")),
+                    "arguments": arguments,
+                }
+            )
+
+        return calls
+
+    @classmethod
+    def _extract_response_text(cls, response: Any) -> str:
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return str(output_text).strip()
+
+        return cls._extract_text_from_response(response)
 
     @staticmethod
     def _extract_text_from_response(response: Any) -> str:

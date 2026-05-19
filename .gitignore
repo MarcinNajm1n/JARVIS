@@ -4,6 +4,13 @@ __pycache__/
 *.pyc
 .env
 
+# Local editor/vault metadata. Can reveal workspace state, open files and plugins.
+.obsidian/
+
+# Generated project graph output. Can include derived Obsidian/workspace metadata
+# and snapshots of local runtime files, so keep it local unless intentionally shared.
+graphify-out/
+
 # Runtime data. Keep only the directory skeleton in git.
 data/*
 !data/documents/

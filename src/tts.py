@@ -182,6 +182,9 @@ class TextToSpeechClient:
         self._playback_thread.start()
         return True
 
+    def is_playing(self) -> bool:
+        return self._playback_thread is not None and self._playback_thread.is_alive()
+
     def stop(self) -> None:
         self._stop_requested.set()
         try:
