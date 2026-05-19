@@ -83,6 +83,7 @@ Najwazniejsze opcje:
 - `TTS_ASYNC_PLAYBACK=true` - terminal wraca do promptu podczas mowienia, dzieki czemu `/stop` moze przerwac TTS.
 - `RAG_ENABLED=true` - lokalna baza wiedzy z `data/documents`.
 - `AUTO_MEMORY_ENABLED=true` - wykrywanie faktow do pamieci z potwierdzeniem.
+- `MAX_HISTORY_MESSAGES=40` - do modelu i pliku rozmowy trafia maksymalnie 40 ostatnich wiadomosci.
 - `TERMINAL_UI=true` - statusy terminalowe przez `rich`, jesli biblioteka jest dostepna.
 - `WAKE_PHRASE=jarvis aktywacja` - fraza aktywujaca tryb sluchania polecenia.
 - `MAX_RECORD_SECONDS=12` - maksymalna dlugosc wypowiedzi.

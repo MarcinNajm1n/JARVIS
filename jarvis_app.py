@@ -1,25 +1,11 @@
 from __future__ import annotations
 
-import argparse
 import threading
 
 from src.app_launcher import app_url, find_free_port, open_app_window, run_server, wait_until_ready
-from src.chat_loop import uruchom_petle_rozmowy
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="JARVIS local assistant")
-    parser.add_argument(
-        "--debug-terminal",
-        action="store_true",
-        help="Run the legacy terminal conversation loop.",
-    )
-    args = parser.parse_args()
-
-    if args.debug_terminal:
-        uruchom_petle_rozmowy()
-        return
-
     port = find_free_port()
     url = app_url(port)
     threading.Thread(

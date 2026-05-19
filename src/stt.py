@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 import unicodedata
 import wave
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ class SpeechToTextClient:
         self.settings = self.settings or load_settings()
         self._client: OpenAI | None = None
         self._logger = get_logger(__name__)
+        self._stop_recording = threading.Event()
 
     @property
     def client(self) -> OpenAI:
@@ -66,6 +68,7 @@ class SpeechToTextClient:
         output_path = output_path or self.settings.microphone_temp_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
         max_seconds = max_seconds or self.settings.record_seconds
+        self._stop_recording.clear()
 
         try:
             import numpy as np
@@ -103,6 +106,8 @@ class SpeechToTextClient:
                 blocksize=chunk_size,
             ) as stream:
                 for _ in range(max_chunks):
+                    if self._stop_recording.is_set():
+                        break
                     chunk, _overflowed = stream.read(chunk_size)
                     chunk = chunk.copy()
                     rms = self._calculate_rms(chunk)
@@ -160,6 +165,9 @@ class SpeechToTextClient:
         except Exception as error:
             self._logger.warning("Microphone recording failed: %s", error)
             return None
+
+    def stop_recording(self) -> None:
+        self._stop_recording.set()
 
     def transcribe_audio(self, audio_path: Path) -> str | None:
         if not audio_path.exists():

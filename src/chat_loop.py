@@ -4,56 +4,37 @@ from pathlib import Path
 
 from config import NAZWA_ASYSTENTA
 from src.assistant_state import AssistantStateStore, AssistantStatus
-from src.auto_memory import extract_memory_candidate
-from src.command_handler import obsluz_komende
 from src.config import load_settings
-from src.llm import LLMClient, Message
+from src.conversation_engine import ConversationEngine
 from src.logger import configure_logging
-from src.long_term_memory import wczytaj_pamiec_stala, zapisz_pamiec_stala
-from src.memory_store import wczytaj_historie, zapisz_historie
-from src.profile_store import UserProfileStore
-from src.project_store import ProjectStore
-from src.rag import RAGMemory
-from src.response_modes import get_mode_instruction
+from src.long_term_memory import zapisz_pamiec_stala
+from src.memory_store import zapisz_historie
 from src.stt import SpeechToTextClient
-from src.task_store import TaskStore
 from src.terminal_ui import TerminalUI
-from src.tts import TextToSpeechClient
-from src.voice_state import czy_mowa_wlaczona
 
 
 def uruchom_petle_rozmowy() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
 
-    llm_client = LLMClient(settings)
-    stt_client = SpeechToTextClient(settings)
-    tts_client = TextToSpeechClient(settings)
-    rag_memory = RAGMemory(settings)
-    rag_memory.ensure_index()
-    assistant_state = AssistantStateStore(settings)
-    profile_store = UserProfileStore(settings)
-    task_store = TaskStore(settings)
-    project_store = ProjectStore(settings)
+    engine = ConversationEngine(settings)
     ui = TerminalUI(settings)
 
-    historia: list[Message] = wczytaj_historie(settings.history_path)
-    pamiec_stala = wczytaj_pamiec_stala(settings.long_term_memory_path)
     input_mode = settings.input_mode
 
-    _print_startup(input_mode, len(historia), len(pamiec_stala))
+    _print_startup(input_mode, len(engine.historia), len(engine.pamiec_stala))
 
     try:
         while True:
-            assistant_state.set_status(
+            engine.assistant_state.set_status(
                 AssistantStatus.SLEEPING if input_mode == "wake" else AssistantStatus.IDLE
             )
             ui.status(AssistantStatus.SLEEPING if input_mode == "wake" else AssistantStatus.IDLE)
             tekst_uzytkownika, input_mode = _pobierz_wejscie(
                 input_mode,
-                stt_client,
+                engine.stt_client,
                 ui,
-                assistant_state,
+                engine.assistant_state,
             )
             tekst_uzytkownika = tekst_uzytkownika.strip()
 
@@ -61,8 +42,8 @@ def uruchom_petle_rozmowy() -> None:
                 continue
 
             if tekst_uzytkownika.lower() in {"exit", "quit", "/exit", "/quit"}:
-                zapisz_historie(historia, settings.history_path)
-                zapisz_pamiec_stala(pamiec_stala, settings.long_term_memory_path)
+                zapisz_historie(engine.historia, settings.history_path)
+                zapisz_pamiec_stala(engine.pamiec_stala, settings.long_term_memory_path)
                 print(f"{NAZWA_ASYSTENTA}: Zapisalem dane i koncze dzialanie.")
                 break
 
@@ -71,58 +52,27 @@ def uruchom_petle_rozmowy() -> None:
                 input_mode = nowy_tryb
                 continue
 
-            czy_komenda, historia, pamiec_stala = obsluz_komende(
-                tekst_uzytkownika,
-                historia,
-                pamiec_stala,
-                sciezka_historii=settings.history_path,
-                sciezka_pamieci_stalej=settings.long_term_memory_path,
-                rag_memory=rag_memory,
-                assistant_state=assistant_state,
-                profile_store=profile_store,
-                task_store=task_store,
-                project_store=project_store,
-                tts_client=tts_client,
-            )
-            if czy_komenda:
-                continue
-
-            pamiec_stala = _obsluz_pamiec_automatyczna(
-                tekst_uzytkownika,
-                pamiec_stala,
-                settings.long_term_memory_path,
-                settings.auto_memory_enabled,
-            )
-
-            historia.append({"role": "user", "content": tekst_uzytkownika})
-            assistant_state.set_status(AssistantStatus.THINKING)
-            ui.status(AssistantStatus.THINKING)
-            rag_context = rag_memory.retrieve_context(tekst_uzytkownika)
-            active_project = assistant_state.get_active_project()
-            odpowiedz = llm_client.generate_response(
-                history=historia,
-                long_term_memory=pamiec_stala,
-                rag_context=rag_context,
-                user_profile=profile_store.format_for_prompt(),
-                response_mode_instruction=get_mode_instruction(
-                    assistant_state.get_response_mode()
-                ),
-                project_context=project_store.summarize(active_project),
-            )
-            historia.append({"role": "assistant", "content": odpowiedz})
-            zapisz_historie(historia, settings.history_path)
-
-            print(f"{NAZWA_ASYSTENTA}: {odpowiedz}")
-
-            if czy_mowa_wlaczona() and not odpowiedz.startswith("Wystapil blad"):
-                assistant_state.set_status(AssistantStatus.SPEAKING)
-                ui.status(AssistantStatus.SPEAKING)
-                tts_client.speak(odpowiedz)
+            if settings.low_latency_mode and settings.streaming_llm:
+                print(f"{NAZWA_ASYSTENTA}: ", end="", flush=True)
+                printed_anything = False
+                for event in engine.stream_response(tekst_uzytkownika):
+                    if event.state == AssistantStatus.THINKING.value.upper() and event.payload:
+                        printed_anything = True
+                        print(event.payload, end="", flush=True)
+                    elif event.state == AssistantStatus.SPEAKING.value.upper():
+                        ui.status(AssistantStatus.SPEAKING)
+                    elif event.state == AssistantStatus.IDLE.value.upper() and not printed_anything:
+                        print(event.payload, end="", flush=True)
+                print()
+            else:
+                ui.status(AssistantStatus.THINKING)
+                odpowiedz = engine.generate_response(tekst_uzytkownika)
+                print(f"{NAZWA_ASYSTENTA}: {odpowiedz}")
 
             print()
     except KeyboardInterrupt:
-        zapisz_historie(historia, settings.history_path)
-        zapisz_pamiec_stala(pamiec_stala, settings.long_term_memory_path)
+        zapisz_historie(engine.historia, settings.history_path)
+        zapisz_pamiec_stala(engine.pamiec_stala, settings.long_term_memory_path)
         print(f"\n{NAZWA_ASYSTENTA}: Przerwano. Zapisalem dane.")
 
 
@@ -191,32 +141,6 @@ def _pobierz_wejscie(
                 return "", input_mode
 
     return input("Ty: "), input_mode
-
-
-def _obsluz_pamiec_automatyczna(
-    tekst_uzytkownika: str,
-    pamiec_stala: list[str],
-    sciezka_pamieci: Path,
-    auto_memory_enabled: bool,
-) -> list[str]:
-    if not auto_memory_enabled:
-        return pamiec_stala
-
-    kandydat = extract_memory_candidate(tekst_uzytkownika)
-    if not kandydat or kandydat in pamiec_stala:
-        return pamiec_stala
-
-    decyzja = input(
-        f"{NAZWA_ASYSTENTA}: Wykrylem potencjalny fakt do pamieci: "
-        f"'{kandydat}'. Zapisac? (tak/nie): "
-    ).strip().lower()
-
-    if decyzja == "tak":
-        pamiec_stala.append(kandydat)
-        zapisz_pamiec_stala(pamiec_stala, sciezka_pamieci)
-        print(f"{NAZWA_ASYSTENTA}: Zapisalem to w pamieci stalej.")
-
-    return pamiec_stala
 
 
 def _obsluz_lokalna_komende_input_mode(tekst: str, input_mode: str) -> str:

@@ -1,13 +1,75 @@
 from __future__ import annotations
 
+import queue
 import threading
 from dataclasses import dataclass
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from openai import OpenAI, OpenAIError
 
 from src.config import Settings, load_settings, require_openai_api_key
 from src.logger import get_logger
+
+
+class ChunkedSpeechQueue:
+    def __init__(self, client: "TextToSpeechClient", latency_tracker=None) -> None:
+        self._client = client
+        self._latency_tracker = latency_tracker
+        self._text_queue: queue.Queue[str | None] = queue.Queue()
+        self._audio_queue: queue.Queue[Path | None] = queue.Queue()
+        self._stop_requested = threading.Event()
+        self._generator = threading.Thread(target=self._generate_audio, daemon=True)
+        self._player = threading.Thread(target=self._play_audio, daemon=True)
+        self._generator.start()
+        self._player.start()
+
+    def enqueue_text(self, text: str) -> None:
+        text = text.strip()
+        if text:
+            self._text_queue.put(text)
+
+    def close(self) -> None:
+        self._text_queue.put(None)
+
+    def wait(self) -> None:
+        self._generator.join()
+        self._player.join()
+
+    def stop(self) -> None:
+        self._stop_requested.set()
+        self._client.stop()
+        self._text_queue.put(None)
+        self._audio_queue.put(None)
+
+    def _generate_audio(self) -> None:
+        index = 0
+        while not self._stop_requested.is_set():
+            text = self._text_queue.get()
+            if text is None:
+                break
+            audio_path = self._client.generate_speech(
+                text,
+                self._client.segment_path(index),
+            )
+            index += 1
+            if audio_path is not None:
+                self._audio_queue.put(audio_path)
+        self._audio_queue.put(None)
+
+    def _play_audio(self) -> None:
+        try:
+            first_segment = True
+            while not self._stop_requested.is_set():
+                audio_path = self._audio_queue.get()
+                if audio_path is None:
+                    break
+                if first_segment and self._latency_tracker is not None:
+                    self._latency_tracker.mark_first_sound()
+                    first_segment = False
+                self._client.play_audio(audio_path)
+        except Exception as error:
+            self._client._logger.warning("Chunked audio playback stopped: %s", error)
 
 
 @dataclass
@@ -55,6 +117,27 @@ class TextToSpeechClient:
         except Exception as error:
             self._logger.warning("Unexpected TTS error: %s", error)
             return None
+
+    def segment_path(self, index: int) -> Path:
+        segment_dir = self.settings.tts_output_path.parent / "tts_segments"
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        return segment_dir / f"segment_{index:04d}.mp3"
+
+    def stream(self, text_iter: Iterable[str]) -> Iterator[Path]:
+        for index, text in enumerate(text_iter):
+            audio_path = self.generate_speech(text, self.segment_path(index))
+            if audio_path is not None:
+                yield audio_path
+
+    def start_audio_queue(self, latency_tracker=None) -> ChunkedSpeechQueue:
+        return ChunkedSpeechQueue(self, latency_tracker=latency_tracker)
+
+    def speak_stream(self, text_iter: Iterable[str], latency_tracker=None) -> bool:
+        speech_queue = self.start_audio_queue(latency_tracker=latency_tracker)
+        for text in text_iter:
+            speech_queue.enqueue_text(text)
+        speech_queue.close()
+        return True
 
     def play_audio(self, audio_path: Path) -> bool:
         if not audio_path.exists():

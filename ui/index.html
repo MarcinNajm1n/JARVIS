@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JARVIS</title>
+    <link rel="stylesheet" href="./styles.css?v=3" />
+  </head>
+  <body>
+    <main class="stage">
+      <section class="core-wrap" aria-label="JARVIS">
+        <div class="signal-ring signal-ring-a"></div>
+        <div class="signal-ring signal-ring-b"></div>
+        <div class="orbit orbit-a"></div>
+        <div class="orbit orbit-b"></div>
+        <div class="core">
+          <span>JARVIS</span>
+        </div>
+        <div class="pulse"></div>
+        <div class="voice-bars" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </section>
+
+      <section class="hud">
+        <div class="status-row">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="stateLabel">IDLE</span>
+        </div>
+        <div class="status-strip">
+          <span>VOICE</span>
+          <span>LOCAL</span>
+          <span>LOW LATENCY</span>
+        </div>
+        <p id="transcript"></p>
+        <div class="controls">
+          <button id="micButton" type="button" title="Start nagrywania">REC</button>
+          <button id="endRecordButton" type="button" title="Zakoncz nagrywanie">END REC</button>
+          <button id="stopButton" type="button" title="Stop">STOP</button>
+        </div>
+        <form id="textForm">
+          <input id="textInput" type="text" autocomplete="off" placeholder="Polecenie..." />
+        </form>
+      </section>
+    </main>
+    <script src="./app.js?v=3"></script>
+  </body>
+</html>

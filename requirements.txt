@@ -6,6 +6,8 @@ sounddevice>=0.5.0
 pygame-ce>=2.5.0
 numpy>=2.0.0
 rich>=13.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
 
 # Local RAG with ChromaDB and LangChain
 chromadb>=0.5.0

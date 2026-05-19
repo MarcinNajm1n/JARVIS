@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterator
 from typing import Any
 
 from openai import OpenAI, OpenAIError
@@ -111,6 +112,49 @@ class LLMClient:
         except Exception as error:
             self._logger.exception("Unexpected LLM error")
             return f"Wystapil nieoczekiwany blad programu: {error}"
+
+    def stream_response(
+        self,
+        history: list[Message],
+        long_term_memory: list[str],
+        rag_context: str | None = None,
+        user_profile: str | None = None,
+        response_mode_instruction: str | None = None,
+        project_context: str | None = None,
+    ) -> Iterator[str]:
+        try:
+            instructions = self.build_instructions(
+                long_term_memory=long_term_memory,
+                rag_context=rag_context,
+                user_profile=user_profile,
+                response_mode_instruction=response_mode_instruction,
+                project_context=project_context,
+            )
+            input_messages = self.trim_history(history)
+
+            self._logger.debug("Streaming OpenAI model: %s", self.settings.llm_model)
+            with self.client.responses.stream(
+                model=self.settings.llm_model,
+                instructions=instructions,
+                input=input_messages,
+            ) as stream:
+                for event in stream:
+                    event_type = getattr(event, "type", "")
+                    if event_type == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            yield str(delta)
+                stream.get_final_response()
+
+        except OpenAIError as error:
+            self._logger.exception("OpenAI streaming LLM request failed")
+            yield f"Wystapil blad OpenAI API: {error}"
+        except ValueError as error:
+            self._logger.warning("LLM streaming configuration error: %s", error)
+            yield f"Brakuje konfiguracji LLM: {error}"
+        except Exception as error:
+            self._logger.exception("Unexpected streaming LLM error")
+            yield f"Wystapil nieoczekiwany blad programu: {error}"
 
     @staticmethod
     def _extract_text_from_response(response: Any) -> str:

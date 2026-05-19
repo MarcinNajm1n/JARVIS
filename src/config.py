@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TTS_VOICE = "onyx"
 API_KEY_PLACEHOLDER_MARKERS = (
     "tu_wklej",
     "twoj_klucz",
@@ -56,6 +58,28 @@ def _path_from_env(name: str, default: str) -> Path:
     return PROJECT_ROOT / path
 
 
+class VoiceOption(StrEnum):
+    ALLOY = "alloy"
+    ASH = "ash"
+    BALLAD = "ballad"
+    CORAL = "coral"
+    ECHO = "echo"
+    FABLE = "fable"
+    NOVA = "nova"
+    ONYX = "onyx"
+    SAGE = "sage"
+    SHIMMER = "shimmer"
+    VERSE = "verse"
+
+
+def _voice_from_env(name: str, default: str) -> str:
+    raw_value = os.getenv(name, default).strip().lower()
+    allowed = {voice.value for voice in VoiceOption}
+    if raw_value not in allowed:
+        return default
+    return raw_value
+
+
 def _normalize_secret(value: str | None) -> str | None:
     if value is None:
         return None
@@ -94,6 +118,7 @@ class Settings:
     record_seconds: int
     wake_record_seconds: int
     speech_end_silence_seconds: float
+    min_silence_ms: int
     audio_chunk_seconds: float
     speech_rms_threshold: int
     min_speech_seconds: float
@@ -115,11 +140,24 @@ class Settings:
     tts_async_playback: bool
     auto_memory_enabled: bool
     terminal_ui: bool
+    low_latency_mode: bool
+    streaming_llm: bool
+    streaming_tts: bool
+    latency_budget_seconds: float
+    latency_critical_seconds: float
+    chunk_ms: int
+    avg_rtt_ms: int
+    tokens_per_s: int
 
 
 DEFAULT_SYSTEM_PROMPT = """
 Jestes JARVIS-em, prywatnym asystentem technicznym uzytkownika.
 Odpowiadasz po polsku, konkretnie i praktycznie.
+Twoj styl jest inspirowany filmowym asystentem J.A.R.V.I.S. z Iron Mana:
+spokojny, precyzyjny, elegancki, techniczny i lekko ironiczny, ale bez
+teatralnosci, bez przesadnego slangu i bez cytowania kwestii z filmu.
+Masz brzmiec jak kompetentny system pokladowy prywatnego laboratorium:
+najpierw diagnoza, potem rekomendacja, potem nastepny krok.
 Uzytkownik jest studentem mechatroniki i rozwija projekt AI w Pythonie.
 Pomagasz jak mentor techniczny: jasno, inzyniersko i krok po kroku.
 Nie wymyslasz faktow. Jesli czegos nie wiesz, mowisz to wprost.
@@ -142,7 +180,7 @@ def load_settings() -> Settings:
         llm_model=os.getenv("LLM_MODEL", "gpt-4.1-mini"),
         stt_model=os.getenv("STT_MODEL", "whisper-1"),
         tts_model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
-        tts_voice=os.getenv("TTS_VOICE", "coral"),
+        tts_voice=_voice_from_env("TTS_VOICE", DEFAULT_TTS_VOICE),
         embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         system_prompt=os.getenv("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT),
         input_mode=input_mode,
@@ -150,7 +188,7 @@ def load_settings() -> Settings:
         rag_enabled=_bool_from_env("RAG_ENABLED", True),
         debug=_bool_from_env("DEBUG", False),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        max_history_messages=_int_from_env("MAX_HISTORY_MESSAGES", 10),
+        max_history_messages=_int_from_env("MAX_HISTORY_MESSAGES", 40),
         rag_top_k=_int_from_env("RAG_TOP_K", 4),
         rag_chunk_size=_int_from_env("RAG_CHUNK_SIZE", 900),
         rag_chunk_overlap=_int_from_env("RAG_CHUNK_OVERLAP", 120),
@@ -159,7 +197,11 @@ def load_settings() -> Settings:
             _int_from_env("RECORD_SECONDS", 12),
         ),
         wake_record_seconds=_int_from_env("WAKE_RECORD_SECONDS", 4),
-        speech_end_silence_seconds=_float_from_env("SPEECH_END_SILENCE_SECONDS", 0.9),
+        speech_end_silence_seconds=_float_from_env(
+            "SPEECH_END_SILENCE_SECONDS",
+            _int_from_env("MIN_SILENCE_MS", 650) / 1000,
+        ),
+        min_silence_ms=_int_from_env("MIN_SILENCE_MS", 650),
         audio_chunk_seconds=_float_from_env("AUDIO_CHUNK_SECONDS", 0.2),
         speech_rms_threshold=_int_from_env("SPEECH_RMS_THRESHOLD", 500),
         min_speech_seconds=_float_from_env("MIN_SPEECH_SECONDS", 0.35),
@@ -187,6 +229,14 @@ def load_settings() -> Settings:
         tts_async_playback=_bool_from_env("TTS_ASYNC_PLAYBACK", True),
         auto_memory_enabled=_bool_from_env("AUTO_MEMORY_ENABLED", True),
         terminal_ui=_bool_from_env("TERMINAL_UI", True),
+        low_latency_mode=_bool_from_env("LOW_LATENCY_MODE", False),
+        streaming_llm=_bool_from_env("STREAMING_LLM", False),
+        streaming_tts=_bool_from_env("STREAMING_TTS", False),
+        latency_budget_seconds=_float_from_env("LATENCY_BUDGET_SECONDS", 2.0),
+        latency_critical_seconds=_float_from_env("LATENCY_CRITICAL_SECONDS", 3.0),
+        chunk_ms=_int_from_env("CHUNK_MS", 450),
+        avg_rtt_ms=_int_from_env("AVG_RTT_MS", 900),
+        tokens_per_s=_int_from_env("TOKENS_PER_S", 40),
     )
 
 

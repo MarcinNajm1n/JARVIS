@@ -3,8 +3,10 @@ from __future__ import annotations
 
 RESPONSE_MODES = {
     "jarvis": (
-        "Tryb odpowiedzi: JARVIS. Odpowiadaj elegancko, rzeczowo, spokojnie i "
-        "z lekkim stylem prywatnego asystenta technicznego. Bez teatralnosci."
+        "Tryb odpowiedzi: JARVIS. Odpowiadaj jak spokojny, dystyngowany i "
+        "technicznie precyzyjny asystent laboratoryjny inspirowany J.A.R.V.I.S.-em "
+        "z Iron Mana: najpierw sedno, potem rekomendacja, z subtelna ironia tylko "
+        "tam, gdzie nie przeszkadza w pracy. Bez teatralnosci i bez cytatow z filmu."
     ),
     "mentor": (
         "Tryb odpowiedzi: mentor. Tlumacz krok po kroku, ale zwiezle. "
