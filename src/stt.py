@@ -12,6 +12,7 @@ from openai import OpenAI, OpenAIError
 
 from src.config import Settings, load_settings, require_openai_api_key
 from src.logger import get_logger
+from src.voice_commands import is_activation_command
 
 
 COMMON_SILENCE_HALLUCINATIONS = {
@@ -23,6 +24,39 @@ COMMON_SILENCE_HALLUCINATIONS = {
     "\u3054\u89a7\u3044\u305f\u3060\u304d\u3042\u308a\u304c\u3068\u3046\u3054\u3056\u3044\u307e\u3059",
     "\u30c1\u30e3\u30f3\u30cd\u30eb\u767b\u9332\u3092\u304a\u9858\u3044\u3044\u305f\u3057\u307e\u3059",
 }
+
+WAKE_NAME_ALIASES = {
+    "jarvis",
+    "jarwis",
+    "jarwiz",
+    "jervis",
+    "jerwis",
+    "dzarvis",
+    "dzerwis",
+    "dzervis",
+    "djarvis",
+    "arvis",
+}
+WAKE_SLEEP_ALIASES = {
+    "spisz",
+    "spis",
+    "spi",
+    "spij",
+    "pisz",
+}
+WAKE_PHRASE_PATTERN = re.compile(
+    r"(?<!\w)"
+    r"(?:jarvis|jarwis|jarwiz|jervis|jerwis|d\u017carwis|dzarvis|"
+    r"d\u017cervis|dzervis|dzerwis|djarvis|arvis)"
+    r"\s+(?:czy\s+)?"
+    r"(?:"
+    r"\u015bpisz|spisz|spis|\u015bpi|spi|\u015bpij|spij|pisz|"
+    r"aktywacja|aktywuj\s+si[e\u0119]|obudz\s+si[e\u0119]|wroc|online|"
+    r"start|sluchaj|jeste\u015b(?:\s+tam)?|jestes(?:\s+tam)?"
+    r")"
+    r"\??(?!\w)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -216,20 +250,38 @@ class SpeechToTextClient:
         return self.transcribe_audio(capture.path)
 
     def contains_wake_phrase(self, text: str) -> bool:
+        if is_activation_command(text):
+            return True
+
+        if self.find_wake_phrase(text) is not None:
+            return True
+
         normalized_text = self._normalize_for_matching(text)
         normalized_wake_phrase = self._normalize_for_matching(self.settings.wake_phrase)
 
         if normalized_wake_phrase and normalized_wake_phrase in normalized_text:
             return True
 
-        wake_aliases = {
-            "jarvis spisz",
-            "jarvis czy spisz",
-            "dzarvis spisz",
-            "jervis spisz",
-            "jarwis spisz",
-        }
-        return any(alias in normalized_text for alias in wake_aliases)
+        tokens = normalized_text.split()
+        for index, token in enumerate(tokens):
+            if token not in WAKE_NAME_ALIASES:
+                continue
+            sleep_index = index + 1
+            if sleep_index < len(tokens) and tokens[sleep_index] == "czy":
+                sleep_index += 1
+            if sleep_index < len(tokens) and tokens[sleep_index] in WAKE_SLEEP_ALIASES:
+                return True
+
+        return False
+
+    def find_wake_phrase(self, text: str) -> re.Match[str] | None:
+        return WAKE_PHRASE_PATTERN.search(text)
+
+    def extract_command_after_wake_phrase(self, text: str) -> str:
+        match = self.find_wake_phrase(text)
+        if match is None:
+            return ""
+        return text[match.end():].strip(" ,.:;-")
 
     @staticmethod
     def _calculate_rms(audio_data) -> float:

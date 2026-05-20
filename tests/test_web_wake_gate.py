@@ -27,7 +27,7 @@ def test_web_wake_gate_nie_wysyla_do_llm_bez_frazy_aktywacji(monkeypatch):
 def test_web_wake_gate_po_aktywacji_wysyla_do_llm_tylko_komende(monkeypatch):
     fake_engine = _FakeEngine(
         wake_text="jarvis śpisz?",
-        command_text="dodaj zadanie sprawdzic function calling",
+        command_text=["dodaj zadanie sprawdzic function calling", "", ""],
     )
     websocket = _FakeWebSocket()
 
@@ -39,7 +39,7 @@ def test_web_wake_gate_po_aktywacji_wysyla_do_llm_tylko_komende(monkeypatch):
     asyncio.run(scenario())
 
     assert fake_engine.acknowledge_calls == 1
-    assert fake_engine.listen_for_command_calls == 1
+    assert fake_engine.listen_for_command_calls == 3
     assert fake_engine.stream_calls == [
         ("dodaj zadanie sprawdzic function calling", 123.0)
     ]
@@ -84,9 +84,31 @@ def test_web_wake_gate_po_pytaniu_o_sen_przyjmuje_spozniona_komende(monkeypatch)
 
     asyncio.run(scenario())
 
-    assert fake_engine.listen_for_command_calls == 2
+    assert fake_engine.listen_for_command_calls == 4
     assert fake_engine.stream_calls == [("sprawdz status projektu", 123.0)]
     assert any(message["state"] == "AWAKE_CONFIRM" for message in websocket.messages)
+
+
+def test_web_wake_gate_po_odpowiedzi_przyjmuje_follow_up_bez_ponownej_aktywacji(monkeypatch):
+    fake_engine = _FakeEngine(
+        wake_text="jarvis spisz",
+        command_text=["pierwsze pytanie", "drugie pytanie", "", ""],
+    )
+    websocket = _FakeWebSocket()
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "recording_lock", asyncio.Lock())
+        await web_app._handle_wake_scan(websocket)
+
+    asyncio.run(scenario())
+
+    assert fake_engine.listen_for_command_calls == 4
+    assert fake_engine.stream_calls == [
+        ("pierwsze pytanie", 123.0),
+        ("drugie pytanie", 123.0),
+    ]
+    assert websocket.messages[-1]["state"] == "SLEEPING"
 
 
 def test_web_wake_gate_lokalna_komenda_stop_przerywa_tts_bez_llm(monkeypatch):
@@ -150,6 +172,32 @@ def test_web_wake_gate_jarvis_wylacz_sie_wysyla_shutdown(monkeypatch):
     assert any(message["state"] == "SHUTDOWN" for message in websocket.messages)
 
 
+def test_web_wake_gate_naturalna_dezaktywacja_wysyla_shutdown(monkeypatch):
+    fake_engine = _FakeEngine(wake_text="jarvis dezaktywacja")
+    websocket = _FakeWebSocket()
+    shutdown_calls = []
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "recording_lock", asyncio.Lock())
+        monkeypatch.setattr(web_app, "zapisz_historie", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(web_app, "zapisz_pamiec_stala", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            web_app,
+            "_shutdown_process_soon",
+            lambda: shutdown_calls.append(True),
+        )
+        await web_app._handle_wake_scan(websocket)
+
+    asyncio.run(scenario())
+
+    assert shutdown_calls == [True]
+    assert fake_engine.stop_all_calls == 1
+    assert fake_engine.listen_for_command_calls == 0
+    assert fake_engine.stream_calls == []
+    assert any(message["state"] == "SHUTDOWN" for message in websocket.messages)
+
+
 def test_clear_working_transcripts_czysci_wake_i_odpowiedz(monkeypatch):
     fake_engine = _FakeEngine(wake_text="")
     websocket = _FakeWebSocket()
@@ -181,12 +229,22 @@ def test_settle_after_response_czeka_na_koniec_tts_i_pauze_przed_snem(monkeypatc
 
     async def scenario():
         monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "last_response", "Komenda przetworzona.")
         monkeypatch.setattr(web_app.asyncio, "sleep", fake_sleep)
         await web_app._settle_after_response(websocket, return_to_sleeping=True)
 
     asyncio.run(scenario())
 
-    assert sleep_calls == [0.15, web_app.settings.post_speech_sleep_delay_seconds]
+    remaining_sleep_delay = (
+        web_app.settings.post_speech_sleep_delay_seconds
+        - web_app.settings.response_text_clear_delay_seconds
+    )
+    assert sleep_calls == [
+        0.15,
+        web_app.settings.response_text_clear_delay_seconds,
+        remaining_sleep_delay,
+    ]
+    assert any(message["state"] == "CLEAR_TRANSCRIPT" for message in websocket.messages)
     assert websocket.messages[-1]["state"] == "SLEEPING"
     assert fake_engine.assistant_state.get_status() == "sleeping"
 
@@ -222,6 +280,9 @@ class _FakeEngine:
 
     def acknowledge_wake_detected(self):
         self.acknowledge_calls += 1
+
+    def correct_transcript(self, text, allow_llm=True):
+        return text
 
     def listen_for_command(self, max_seconds=None):
         self.listen_for_command_calls += 1
@@ -302,4 +363,6 @@ class _FakeSttClient:
         return self.wake_text
 
     def contains_wake_phrase(self, text):
-        return "jarvis śpisz" in text.lower()
+        lowered = text.lower()
+        return 'jarvis' in lowered and ('spisz' in lowered or 'pisz' in lowered)
+

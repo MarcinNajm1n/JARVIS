@@ -105,7 +105,7 @@ def _pobierz_wejscie(
         print("Nagrywam. Mow naturalnie, zakoncze po chwili ciszy...")
         assistant_state.set_status(AssistantStatus.LISTENING)
         ui.status(AssistantStatus.LISTENING)
-        transkrypcja = stt_client.listen_and_transcribe()
+        transkrypcja, _utterance_end_time = engine.listen_once()
         if transkrypcja:
             print(f"Ty (STT): {transkrypcja}")
             return transkrypcja, input_mode

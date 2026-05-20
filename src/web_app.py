@@ -207,6 +207,7 @@ async def _handle_wake_scan(websocket: WebSocket | None = None) -> None:
         await _send_or_broadcast(websocket, {"state": "SLEEPING", "payload": ""})
         return
 
+    wake_text = engine.correct_transcript(wake_text, allow_llm=False)
     logger.info("Wake scan heard fragment: %s", wake_text)
     last_wake_transcript = wake_text
     await _send_or_broadcast(
@@ -269,17 +270,53 @@ async def _handle_wake_scan(websocket: WebSocket | None = None) -> None:
             len(command_text),
         )
 
-    if await _handle_local_voice_command(command_text, websocket):
-        return
+    await _run_awake_conversation(websocket, command_text, utterance_end_time)
 
-    if websocket is not None:
-        await _offer_memory_candidate(websocket, command_text)
 
-    logger.info("Sending activated voice command to LLM. Length: %s", len(command_text))
-    for event in engine.stream_response(command_text, utterance_end_time):
-        await _send_event(websocket, event)
-    await _settle_after_response(websocket, return_to_sleeping=True)
-    await _send_or_broadcast(websocket, {"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
+async def _run_awake_conversation(
+    websocket: WebSocket | None,
+    command_text: str,
+    utterance_end_time: float,
+) -> None:
+    while command_text:
+        if await _handle_local_voice_command(command_text, websocket):
+            return
+
+        if websocket is not None:
+            await _offer_memory_candidate(websocket, command_text)
+
+        logger.info("Sending activated voice command to LLM. Length: %s", len(command_text))
+        for event in engine.stream_response(command_text, utterance_end_time):
+            await _send_event(websocket, event)
+
+        await _settle_after_response(websocket, return_to_sleeping=False)
+        await _send_or_broadcast(
+            websocket,
+            {"state": "DASHBOARD", "payload": build_dashboard_snapshot()},
+        )
+
+        logger.info(
+            "Keeping JARVIS awake for follow-up command for %s seconds.",
+            settings.follow_up_timeout_seconds,
+        )
+        command_text, utterance_end_time = await _listen_once_for_command(
+            websocket,
+            max_seconds=settings.follow_up_timeout_seconds,
+        )
+        if command_text:
+            continue
+
+        command_text, utterance_end_time = await _ask_before_sleeping(websocket)
+        if not command_text:
+            engine.assistant_state.set_status(AssistantStatus.SLEEPING)
+            await _send_or_broadcast(
+                websocket,
+                {
+                    "state": "SLEEPING",
+                    "payload": "Wracam do snu.",
+                },
+            )
+            return
 
 
 async def _listen_once_for_command(
@@ -346,8 +383,19 @@ async def _settle_after_response(
         await _send_or_broadcast(websocket, {"state": "SPEAKING", "payload": ""})
         await asyncio.sleep(0.15)
 
-    if speech_was_playing and settings.post_speech_sleep_delay_seconds > 0:
-        await asyncio.sleep(settings.post_speech_sleep_delay_seconds)
+    should_clear_response = settings.input_mode == "wake" and bool(last_response)
+    clear_delay = max(0.0, settings.response_text_clear_delay_seconds)
+    if should_clear_response:
+        if clear_delay > 0:
+            await asyncio.sleep(clear_delay)
+        await _send_or_broadcast(websocket, {"state": "CLEAR_TRANSCRIPT", "payload": ""})
+
+    if (
+        speech_was_playing
+        and return_to_sleeping
+        and settings.post_speech_sleep_delay_seconds > clear_delay
+    ):
+        await asyncio.sleep(settings.post_speech_sleep_delay_seconds - clear_delay)
 
     final_status = AssistantStatus.SLEEPING if return_to_sleeping else AssistantStatus.IDLE
     engine.assistant_state.set_status(final_status)
@@ -358,13 +406,7 @@ async def _settle_after_response(
 
 
 def _extract_command_after_wake_phrase(text: str) -> str:
-    lowered_text = text.lower()
-    lowered_phrase = settings.wake_phrase.lower()
-    phrase_index = lowered_text.find(lowered_phrase)
-    if phrase_index < 0:
-        return ""
-    command_start = phrase_index + len(lowered_phrase)
-    return text[command_start:].strip(" ,.:;-")
+    return engine.stt_client.extract_command_after_wake_phrase(text)
 
 
 async def _handle_local_voice_command(text: str, websocket: WebSocket | None = None) -> bool:

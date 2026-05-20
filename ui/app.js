@@ -117,6 +117,11 @@ if (socket) {
       return;
     }
 
+    if (message.state === "CLEAR_TRANSCRIPT") {
+      transcript.textContent = "";
+      return;
+    }
+
     setState(message.state || "IDLE");
 
     if (message.state === "SHUTDOWN") {

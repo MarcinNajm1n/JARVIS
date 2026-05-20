@@ -77,6 +77,35 @@ def test_generate_response_obsluguje_function_calling_i_odsyla_wynik_narzedzia()
     } in fake_client.responses.requests[1]["input"]
 
 
+def test_correct_transcript_uzywa_llm_i_zwraca_poprawiony_tekst():
+    fake_client = _FakeOpenAIClient([
+        SimpleNamespace(output=[], output_text="jarvis śpisz? sprawdz FastAPI")
+    ])
+    client = LLMClient()
+    client._client = fake_client
+
+    result = client.correct_transcript("dżarwis spisz sprawdz fast api")
+
+    assert result == "jarvis śpisz? sprawdz FastAPI"
+    assert fake_client.responses.requests[0]["model"] == client.settings.llm_model
+    assert "Popraw tylko oczywiste bledy STT" in fake_client.responses.requests[0]["instructions"]
+    assert fake_client.responses.requests[0]["input"] == [
+        {"role": "user", "content": "dżarwis spisz sprawdz fast api"}
+    ]
+
+
+def test_correct_transcript_odrzuca_podejrzanie_dlugi_wynik():
+    fake_client = _FakeOpenAIClient([
+        SimpleNamespace(output=[], output_text="x" * 500)
+    ])
+    client = LLMClient()
+    client._client = fake_client
+
+    result = client.correct_transcript("open ai")
+
+    assert result == "open ai"
+
+
 class _FakeOpenAIClient:
     def __init__(self, responses):
         self.responses = _FakeResponses(responses)

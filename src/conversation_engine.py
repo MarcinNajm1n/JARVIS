@@ -34,6 +34,7 @@ from src.rag import RAGMemory
 from src.response_modes import get_mode_instruction
 from src.stt import SpeechToTextClient
 from src.task_store import TaskStore
+from src.transcript_corrector import TranscriptCorrector
 from src.tts import ChunkedSpeechQueue, TextToSpeechClient
 from src.voice_state import czy_mowa_wlaczona
 
@@ -81,6 +82,7 @@ class ConversationEngine:
         self._logger = get_logger(__name__)
         self.llm_client = LLMClient(self.settings)
         self.stt_client = SpeechToTextClient(self.settings)
+        self.transcript_corrector = TranscriptCorrector(self.settings)
         self.tts_client = TextToSpeechClient(self.settings)
         self.rag_memory = RAGMemory(self.settings)
         self.rag_memory.ensure_index()
@@ -98,15 +100,47 @@ class ConversationEngine:
 
     def listen_once(self) -> tuple[str, float]:
         self.assistant_state.set_status(AssistantStatus.LISTENING)
-        text = self.stt_client.listen_and_transcribe() or ""
+        text = self.correct_transcript(self.stt_client.listen_and_transcribe() or "")
         return text, time.monotonic()
 
     def listen_for_command(self, max_seconds: int | None = None) -> tuple[str, float]:
         self.assistant_state.set_status(AssistantStatus.LISTENING_COMMAND)
-        text = self.stt_client.listen_and_transcribe(
+        raw_text = self.stt_client.listen_and_transcribe(
             max_seconds=max_seconds or self.settings.command_timeout_seconds
         ) or ""
+        text = self.correct_transcript(raw_text)
         return text, time.monotonic()
+
+    def correct_transcript(self, text: str, allow_llm: bool = True) -> str:
+        if not text.strip() or not self.settings.transcript_correction_enabled:
+            return text
+
+        result = self.transcript_corrector.correct(text)
+        corrected_text = result.corrected_text
+        if result.changed:
+            self._logger.info(
+                "Transcript corrected before command handling/LLM. corrections=%s confidence=%.2f",
+                [correction.reason for correction in result.corrections],
+                result.confidence,
+            )
+            self._logger.debug(
+                "Transcript correction detail: original=%r corrected=%r",
+                result.original_text,
+                corrected_text,
+            )
+
+        if allow_llm and self.settings.transcript_correction_with_llm:
+            llm_corrected = self.llm_client.correct_transcript(corrected_text)
+            if llm_corrected != corrected_text:
+                self._logger.info("Transcript corrected by LLM before command handling/LLM.")
+                self._logger.debug(
+                    "LLM transcript correction detail: original=%r corrected=%r",
+                    corrected_text,
+                    llm_corrected,
+                )
+                corrected_text = llm_corrected
+
+        return corrected_text
 
     def acknowledge_wake_detected(self) -> None:
         self.assistant_state.set_status(AssistantStatus.WAKE_DETECTED)

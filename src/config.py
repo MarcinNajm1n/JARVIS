@@ -154,6 +154,9 @@ class Settings:
     sample_rate: int
     stt_language: str
     stt_prompt: str
+    transcript_correction_enabled: bool
+    transcript_correction_with_llm: bool
+    transcript_correction_min_confidence: float
     wake_phrase: str
     history_path: Path
     long_term_memory_path: Path
@@ -177,6 +180,8 @@ class Settings:
     streaming_llm: bool
     streaming_tts: bool
     post_speech_sleep_delay_seconds: float
+    response_text_clear_delay_seconds: float
+    follow_up_timeout_seconds: int
     latency_budget_seconds: float
     latency_critical_seconds: float
     chunk_ms: int
@@ -253,6 +258,12 @@ def load_settings() -> Settings:
             "Rozmowa po polsku z asystentem technicznym JARVIS.",
         ),
         wake_phrase=os.getenv("WAKE_PHRASE", "jarvis śpisz?"),
+        transcript_correction_enabled=_bool_from_env("TRANSCRIPT_CORRECTION_ENABLED", True),
+        transcript_correction_with_llm=_bool_from_env("TRANSCRIPT_CORRECTION_WITH_LLM", False),
+        transcript_correction_min_confidence=_float_from_env(
+            "TRANSCRIPT_CORRECTION_MIN_CONFIDENCE",
+            0.65,
+        ),
         history_path=_path_from_env("HISTORY_PATH", "data/conversation_history.json"),
         long_term_memory_path=_path_from_env(
             "LONG_TERM_MEMORY_PATH",
@@ -284,6 +295,11 @@ def load_settings() -> Settings:
             "POST_SPEECH_SLEEP_DELAY_SECONDS",
             5.0,
         ),
+        response_text_clear_delay_seconds=_float_from_env(
+            "RESPONSE_TEXT_CLEAR_DELAY_SECONDS",
+            1.0,
+        ),
+        follow_up_timeout_seconds=_int_from_env("FOLLOW_UP_TIMEOUT_SECONDS", 10),
         latency_budget_seconds=_float_from_env("LATENCY_BUDGET_SECONDS", 2.0),
         latency_critical_seconds=_float_from_env("LATENCY_CRITICAL_SECONDS", 3.0),
         chunk_ms=_int_from_env("CHUNK_MS", 450),

@@ -132,6 +132,38 @@ class LLMClient:
             self._logger.exception("Unexpected LLM error")
             return f"Wystapil nieoczekiwany blad programu: {error}"
 
+    def correct_transcript(self, text: str) -> str:
+        text = text.strip()
+        if not text:
+            return text
+
+        instructions = (
+            "Popraw tylko oczywiste bledy STT w polsko-angielskiej komendzie "
+            "technicznej do asystenta JARVIS. Nie dopowiadaj nowych intencji, "
+            "nie zmieniaj sensu i zwroc wylacznie poprawiony tekst."
+        )
+        try:
+            response = self.client.responses.create(
+                model=self.settings.llm_model,
+                instructions=instructions,
+                input=[{"role": "user", "content": text}],
+            )
+            corrected = self._extract_response_text(response).strip().strip('"').strip("'")
+            max_reasonable_length = max(len(text) * 2, len(text) + 80)
+            if not corrected or len(corrected) > max_reasonable_length:
+                self._logger.warning("LLM transcript correction rejected as unsafe.")
+                return text
+            return corrected
+        except OpenAIError:
+            self._logger.exception("OpenAI transcript correction failed")
+            return text
+        except ValueError as error:
+            self._logger.warning("Transcript correction configuration error: %s", error)
+            return text
+        except Exception:
+            self._logger.exception("Unexpected transcript correction error")
+            return text
+
     def _create_response(
         self,
         instructions: str,

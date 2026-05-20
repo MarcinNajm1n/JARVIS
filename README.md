@@ -102,9 +102,14 @@ Najwazniejsze opcje:
 - `COMMAND_TIMEOUT_SECONDS=10` - ile sekund JARVIS czeka na polecenie po aktywacji.
 - `AWAKE_CONFIRMATION_TIMEOUT_SECONDS=10` - dodatkowe okno sluchania po pytaniu `Moge isc spac, szefie?`.
 - `POST_SPEECH_SLEEP_DELAY_SECONDS=5.0` - pauza po zakonczeniu TTS zanim UI wroci do `SLEEPING`.
+- `RESPONSE_TEXT_CLEAR_DELAY_SECONDS=1.0` - ile sekund po odpowiedzi glosowej tekst JARVISA moze jeszcze widniec w kokpicie.
+- `FOLLOW_UP_TIMEOUT_SECONDS=10` - ile sekund po odpowiedzi JARVIS czeka na kolejne pytanie bez ponownej aktywacji.
 - `MICROPHONE_SENSITIVITY=normal` - czulosc mikrofonu: `high`, `normal`, `low`.
 - `SPEECH_END_SILENCE_SECONDS=0.9` - po takiej ciszy program konczy nagrywanie.
 - `SPEECH_RMS_THRESHOLD=500` - reczny prog glosnosci dla wykrywania mowy, uzywany gdy nie ustawisz `MICROPHONE_SENSITIVITY`.
+- `TRANSCRIPT_CORRECTION_ENABLED=true` - poprawia oczywiste bledy STT przed lokalnymi komendami i wyslaniem do LLM.
+- `TRANSCRIPT_CORRECTION_WITH_LLM=false` - opcjonalna dodatkowa korekta transkrypcji przez LLM; domyslnie wylaczona, zeby nie wysylac dodatkowych tokenow.
+- `TRANSCRIPT_CORRECTION_MIN_CONFIDENCE=0.65` - minimalna pewnosc dla lokalnej warstwy korekty.
 
 ## Uruchomienie
 
@@ -129,7 +134,7 @@ Tryb terminalowy/debug:
 python jarvis_terminal.py
 ```
 
-Przy `INPUT_MODE=wake` aplikacja webowa po starcie przechodzi w tryb nasluchu frazy aktywacyjnej. Cykl pracy to: `SLEEPING -> WAKE_DETECTED -> LISTENING_COMMAND -> AWAKE_CONFIRM -> THINKING -> SPEAKING -> SLEEPING`. Kazdy rozpoznany fragment nasluchu pokazuje w UI jako transkrypcje robocza, ale nie wysyla go do LLM i nie odpowiada, dopoki nie uslyszy frazy `jarvis śpisz?`. Po aktywacji JARVIS mowi krotko `Słucham.` i czeka `COMMAND_TIMEOUT_SECONDS` sekund na polecenie. Jesli nic nie uslyszy, pyta `Moge isc spac, szefie?` i slucha jeszcze przez `AWAKE_CONFIRMATION_TIMEOUT_SECONDS` sekund. Do historii rozmowy zapisuje dopiero polecenie wypowiedziane po aktywacji. Rowniez tekst wpisany w UI nie trafia do LLM w trybie wake, chyba ze zawiera fraze aktywacyjna albo jest lokalna komenda zaczynajaca sie od `/`.
+Przy `INPUT_MODE=wake` aplikacja webowa po starcie przechodzi w tryb nasluchu frazy aktywacyjnej. Cykl pracy to: `SLEEPING -> WAKE_DETECTED -> LISTENING_COMMAND -> THINKING -> SPEAKING -> LISTENING_COMMAND`, a po ciszy `AWAKE_CONFIRM -> SLEEPING`. Kazdy rozpoznany fragment nasluchu pokazuje w UI jako transkrypcje robocza, ale nie wysyla go do LLM i nie odpowiada, dopoki nie uslyszy frazy `jarvis śpisz?`. Po aktywacji JARVIS mowi krotko `Słucham.` i czeka `COMMAND_TIMEOUT_SECONDS` sekund na polecenie. Po odpowiedzi zostaje aktywny przez `FOLLOW_UP_TIMEOUT_SECONDS` sekund, wiec mozna zadac kolejne pytanie bez ponownego hasla. Jesli nic nie uslyszy, pyta `Moge isc spac, szefie?` i slucha jeszcze przez `AWAKE_CONFIRMATION_TIMEOUT_SECONDS` sekund. Do historii rozmowy zapisuje dopiero polecenie wypowiedziane po aktywacji. Rowniez tekst wpisany w UI nie trafia do LLM w trybie wake, chyba ze zawiera fraze aktywacyjna albo jest lokalna komenda zaczynajaca sie od `/`.
 
 Przydatne komendy w aplikacji:
 
@@ -180,7 +185,7 @@ skoncz
 jarvis wylacz sie
 ```
 
-Komendy `stop`, `jarvis stop`, `przestan`, `koniec` i `skoncz` przerywaja TTS. Komenda `jarvis wylacz sie` zapisuje dane, wysyla do UI sygnal zamkniecia strony i konczy dzialanie programu.
+Komendy `stop`, `jarvis stop`, `przestan`, `koniec` i `skoncz` przerywaja TTS. JARVIS rozumie tez naturalne warianty aktywacji i zamkniecia, np. `jarvis aktywacja`, `jarvis online`, `jarvis wylacz`, `jarvis dezaktywacja` albo `jarvis offline`. Zamkniecie zapisuje dane, wysyla do UI sygnal zamkniecia strony i konczy dzialanie programu.
 
 ### Function Calling 2.0
 
