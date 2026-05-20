@@ -17,6 +17,8 @@ class AssistantStatus(StrEnum):
     WAITING_FOLLOWUP = "waiting_followup"
     GOING_SLEEP = "going_sleep"
     THINKING = "thinking"
+    SEARCHING = "searching"
+    DISPLAYING_RESULT = "displaying_result"
     SPEAKING = "speaking"
     IDLE = "idle"
 

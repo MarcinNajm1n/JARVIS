@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from src import web_app
+from src.weather_service import WeatherResult
 
 
 def test_web_wake_gate_nie_wysyla_do_llm_bez_frazy_aktywacji(monkeypatch):
@@ -128,6 +129,101 @@ def test_web_wake_gate_lokalna_komenda_stop_przerywa_tts_bez_llm(monkeypatch):
         message["payload"] == "Przerywam odtwarzanie."
         for message in websocket.messages
     )
+
+
+def test_web_wake_gate_pogoda_wysyla_visual_result_bez_llm(monkeypatch):
+    fake_engine = _FakeEngine(
+        wake_text="jarvis spisz",
+        command_text=["jaka jest pogoda w Berlinie", "", ""],
+    )
+    websocket = _FakeWebSocket()
+
+    def fake_weather(location):
+        return WeatherResult(
+            ok=True,
+            location="Berlin",
+            lat=52.52,
+            lon=13.405,
+            temperature=18,
+            description="pochmurno",
+            wind=12,
+            humidity=60,
+            cloud_cover=75,
+            observed_at="2026-05-20T12:00",
+        )
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "recording_lock", asyncio.Lock())
+        monkeypatch.setattr(web_app, "get_current_weather", fake_weather)
+        await web_app._handle_wake_scan(websocket)
+
+    asyncio.run(scenario())
+
+    assert fake_engine.stream_calls == []
+    assert any(message["state"] == "SEARCHING" for message in websocket.messages)
+    visual_messages = [message for message in websocket.messages if message["state"] == "VISUAL_RESULT"]
+    assert visual_messages
+    assert visual_messages[0]["payload"]["mode"] == "map_weather"
+    assert visual_messages[0]["payload"]["location"] == "Berlin"
+    assert any(message["state"] == "UI_EVENT" for message in websocket.messages)
+
+
+def test_web_weather_brak_danych_pokazuje_komunikat(monkeypatch):
+    fake_engine = _FakeEngine(wake_text="")
+    websocket = _FakeWebSocket()
+
+    def fake_weather(location):
+        return WeatherResult(False, location, error="Brak danych")
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "get_current_weather", fake_weather)
+        handled = await web_app._handle_visual_query("pogoda w NieznaneMiasto", websocket)
+        assert handled is True
+
+    asyncio.run(scenario())
+
+    visual_messages = [message for message in websocket.messages if message["state"] == "VISUAL_RESULT"]
+    assert visual_messages[0]["payload"]["ok"] is False
+    assert "Nie mam aktualnych danych pogodowych" in visual_messages[0]["payload"]["message"]
+    assert fake_engine.stream_calls == []
+
+
+def test_web_visual_planner_wysyla_entity_profile_dla_pytania_faktograficznego(monkeypatch):
+    fake_engine = _FakeEngine(wake_text="")
+    websocket = _FakeWebSocket()
+
+    def fake_plan(question, answer):
+        assert question == "kto jest najbogatszy na swiecie"
+        assert answer == "Elon Musk jest przedsiebiorca."
+        return {
+            "type": "visual_result",
+            "mode": "entity_profile",
+            "title": "Elon Musk",
+            "subject": "Elon Musk",
+            "summary": "Profil testowy.",
+            "facts": ["CEO kilku firm."],
+            "sources": ["Wikipedia"],
+            "cost": {"operation": "visual_planner", "estimated_cost_usd": 0.0},
+        }
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "plan_visual_result", fake_plan)
+        handled = await web_app._send_planned_visual_result(
+            websocket,
+            "kto jest najbogatszy na swiecie",
+            "Elon Musk jest przedsiebiorca.",
+        )
+        assert handled is True
+
+    asyncio.run(scenario())
+
+    visual_messages = [message for message in websocket.messages if message["state"] == "VISUAL_RESULT"]
+    assert visual_messages
+    assert visual_messages[0]["payload"]["mode"] == "entity_profile"
+    assert visual_messages[0]["payload"]["subject"] == "Elon Musk"
 
 
 def test_web_wake_gate_jarvis_stop_przerywa_tts_bez_frazy_aktywacji(monkeypatch):

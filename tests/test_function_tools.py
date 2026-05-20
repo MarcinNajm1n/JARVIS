@@ -9,6 +9,7 @@ from src.function_tools import (
     execute_jarvis_tool,
 )
 from src.long_term_memory import wczytaj_pamiec_stala
+from src.weather_service import WeatherResult
 
 
 def test_function_tools_definiuja_narzedzie_add_task_w_formacie_responses_api():
@@ -82,6 +83,42 @@ def test_execute_jarvis_tool_search_commands_znajduje_wylaczenie_programu():
 
     assert result["ok"] is True
     assert result["result"]["commands"][0]["command"] == "jarvis wylacz sie"
+
+
+def test_function_tools_definiuja_get_weather():
+    weather_tool = next(tool for tool in JARVIS_FUNCTION_TOOLS if tool["name"] == "get_weather")
+
+    assert weather_tool["type"] == "function"
+    assert weather_tool["strict"] is True
+    assert weather_tool["parameters"]["required"] == ["location"]
+    assert JARVIS_TOOL_RISK["get_weather"] == "safe"
+
+
+def test_execute_jarvis_tool_get_weather_zwraca_payload_wizualny(monkeypatch):
+    context = _build_context()
+
+    def fake_weather(location):
+        return WeatherResult(
+            ok=True,
+            location=location,
+            lat=52.52,
+            lon=13.405,
+            temperature=18,
+            description="pochmurno",
+            wind=12,
+            humidity=60,
+            cloud_cover=75,
+            observed_at="2026-05-20T12:00",
+        )
+
+    monkeypatch.setattr("src.function_tools.get_current_weather", fake_weather)
+    raw_result = execute_jarvis_tool("get_weather", {"location": "Berlin"}, context)
+    result = json.loads(raw_result)
+
+    assert result["ok"] is True
+    assert result["result"]["mode"] == "map_weather"
+    assert result["result"]["location"] == "Berlin"
+    assert result["result"]["weather"]["temperature"] == 18
 
 
 def test_tool_risk_klasyfikuje_remove_task_jako_wymagajace_potwierdzenia():

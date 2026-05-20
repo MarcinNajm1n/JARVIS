@@ -20,12 +20,21 @@ def test_ui_zawiera_panele_kokpitu_jarvisa():
     assert 'id="tokenMeter"' in html
     assert 'id="briefingPanel"' in html
     assert 'id="setupWarning"' in html
+    assert 'id="resultPanel"' in html
+    assert 'id="resultMap"' in html
+    assert 'id="eventQueue"' in html
+    assert 'id="resultHistory"' in html
+    assert 'id="commandPalette"' in html
     assert '<strong id="costMeter"' in html
     assert html.index('class="top-cost-meter"') < html.index('<main class="stage"')
     assert html.index('id="costMeter"') < html.index('class="core-wrap"')
     assert html.index('id="costMeter"') < html.index('id="transcript"')
-    assert "styles.css?v=14" in html
-    assert "app.js?v=13" in html
+    assert "leaflet@1.9.4/dist/leaflet.css" in html
+    assert "leaflet@1.9.4/dist/leaflet.js" in html
+    assert 'id="leafletMap"' in html
+    assert 'id="resultImage"' in html
+    assert "styles.css?v=17" in html
+    assert "app.js?v=17" in html
 
 
 def test_ui_obsluguje_dashboard_i_prywatnosc():
@@ -44,6 +53,21 @@ def test_ui_obsluguje_dashboard_i_prywatnosc():
     assert "tokenMeter.textContent" in js
     assert "last_intent" in js
     assert "wake_detector" in js
+    assert "renderVisualResult" in js
+    assert "renderWeatherResult" in js
+    assert "renderEntityProfile" in js
+    assert "renderEmbeddedOsmMap" in js
+    assert "openstreetmap.org/export/embed.html" in js
+    assert "activateVisualScene" in js
+    assert "renderRelatedResults" in js
+    assert "map_weather" in js
+    assert "entity_profile" in js
+    assert "L.tileLayer" in js
+    assert "VISUAL_RESULT" in js
+    assert "UI_EVENT" in js
+    assert "DISPLAYING_RESULT" in js
+    assert "visualHistory" in js
+    assert "commandPalette" in js
 
 
 def test_ui_ma_style_paneli_kokpitu():
@@ -88,6 +112,20 @@ def test_ui_ma_style_paneli_kokpitu():
     assert "#transcript {\n  order: 3;" in css
     assert "#textForm {\n  order: 6;" in css
     assert ".setup-warning" in css
+    assert ".result-panel" in css
+    assert ".result-map" in css
+    assert ".leaflet-map" in css
+    assert ".leaflet-ready" in css
+    assert ".osm-embed" in css
+    assert ".map-hero-image" in css
+    assert ".scene-enter" in css
+    assert "scene-materialize" in css
+    assert "image-reveal" in css
+    assert ".result-image" in css
+    assert ".event-queue" in css
+    assert ".command-palette" in css
+    assert 'body[data-state="searching"]' in css
+    assert 'body[data-state="displaying_result"]' in css
 
 
 def test_favicon_route_nie_zwraca_404():

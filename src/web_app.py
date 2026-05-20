@@ -22,7 +22,9 @@ from src.memory_store import zapisz_historie
 from src.operational_briefing import build_operational_briefing
 from src.startup_checks import read_startup_warnings
 from src.intent_router import IntentType, classify_intent
+from src.visual_planner import plan_visual_result
 from src.voice_commands import is_shutdown_command, is_tts_stop_command
+from src.weather_service import extract_weather_location, get_current_weather
 
 
 settings = load_settings()
@@ -34,6 +36,7 @@ connected_websockets: set[WebSocket] = set()
 pending_memory_candidates: dict[WebSocket, str] = {}
 last_wake_transcript = ""
 last_response = ""
+visual_result_history: list[dict] = []
 recording_lock = asyncio.Lock()
 auto_wake_task: asyncio.Task | None = None
 
@@ -129,10 +132,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if await _handle_local_voice_command(text, websocket):
                 continue
+            if await _handle_visual_query(text, websocket):
+                continue
             await _offer_memory_candidate(websocket, text)
 
-            for event in engine.stream_response(text, utterance_end_time):
-                await _send_event(websocket, event)
+            response_text = await _stream_engine_response(websocket, text, utterance_end_time)
+            await _send_planned_visual_result(websocket, text, response_text)
             await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
             await _settle_after_response(websocket, return_to_sleeping=False)
             await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
@@ -182,6 +187,7 @@ def build_dashboard_snapshot() -> dict:
         "episodic_memory": engine.episodic_memory.snapshot(),
         "last_wake_transcript": last_wake_transcript,
         "last_response": last_response,
+        "visual_results": visual_result_history[-5:],
         "tasks": engine.task_store.list(include_done=True)[:8],
         "active_project": active_project or "brak",
         "project_status": engine.project_store.summarize(active_project),
@@ -299,14 +305,33 @@ async def _run_awake_conversation(
     while command_text:
         if await _handle_local_voice_command(command_text, websocket):
             return
+        if await _handle_visual_query(command_text, websocket):
+            command_text, utterance_end_time = await _listen_once_for_command(
+                websocket,
+                max_seconds=settings.follow_up_timeout_seconds,
+            )
+            if command_text:
+                continue
+            command_text, utterance_end_time = await _ask_before_sleeping(websocket)
+            if not command_text:
+                engine.assistant_state.set_status(AssistantStatus.SLEEPING)
+                await _send_or_broadcast(
+                    websocket,
+                    {
+                        "state": "SLEEPING",
+                        "payload": "Wracam do snu.",
+                    },
+                )
+                return
+            continue
 
         if websocket is not None:
             await _offer_memory_candidate(websocket, command_text)
 
         logger.info("Sending activated voice command to LLM. Length: %s", len(command_text))
         engine.assistant_state.set_status(AssistantStatus.ACTIVE_CONVERSATION)
-        for event in engine.stream_response(command_text, utterance_end_time):
-            await _send_event(websocket, event)
+        response_text = await _stream_engine_response(websocket, command_text, utterance_end_time)
+        await _send_planned_visual_result(websocket, command_text, response_text)
 
         await _send_or_broadcast(
             websocket,
@@ -383,6 +408,96 @@ async def _send_or_broadcast(websocket: WebSocket | None, message: dict[str, str
         await _broadcast(message)
         return
     await websocket.send_json(message)
+
+
+async def _send_ui_event(websocket: WebSocket | None, text: str) -> None:
+    await _send_or_broadcast(websocket, {"state": "UI_EVENT", "payload": text})
+
+
+async def _handle_visual_query(text: str, websocket: WebSocket | None = None) -> bool:
+    global last_response
+    decision = classify_intent(text)
+    engine.last_route_decision = decision
+    if decision.intent != IntentType.WEATHER_QUERY:
+        return False
+
+    location = extract_weather_location(text) or "Berlin"
+    logger.info("Visual weather query detected. location=%s", location)
+    engine.assistant_state.set_status(AssistantStatus.SEARCHING)
+    await _send_or_broadcast(websocket, {"state": "SEARCHING", "payload": "Rozpoznano pytanie pogodowe."})
+    await _send_ui_event(websocket, "rozpoznano pytanie")
+    await _send_ui_event(websocket, f"wyszukuje {location}")
+
+    result = await asyncio.to_thread(get_current_weather, location)
+    payload = result.to_visual_payload()
+    visual_result_history.append(payload)
+    del visual_result_history[:-8]
+
+    if result.ok:
+        await _send_ui_event(websocket, "pobrano pogode")
+    else:
+        await _send_ui_event(websocket, "brak aktualnych danych pogodowych")
+
+    engine.assistant_state.set_status(AssistantStatus.DISPLAYING_RESULT)
+    await _send_or_broadcast(websocket, {"state": "DISPLAYING_RESULT", "payload": payload["message"]})
+    await _send_or_broadcast(websocket, {"state": "VISUAL_RESULT", "payload": payload})
+    await _send_ui_event(websocket, "gotowe")
+    last_response = payload["message"]
+    if result.ok:
+        await asyncio.to_thread(engine.tts_client.speak, payload["message"], False)
+    await _send_or_broadcast(websocket, {"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
+    return True
+
+
+async def _stream_engine_response(
+    websocket: WebSocket | None,
+    text: str,
+    utterance_end_time: float | None,
+) -> str:
+    response_text = ""
+    for event in engine.stream_response(text, utterance_end_time):
+        message = event.as_dict()
+        if message["state"] == "IDLE" and message.get("payload"):
+            response_text = str(message["payload"])
+        await _send_event(websocket, event)
+    return response_text or last_response
+
+
+async def _send_planned_visual_result(
+    websocket: WebSocket | None,
+    question: str,
+    answer: str,
+) -> bool:
+    if not question or not answer:
+        return False
+
+    engine.assistant_state.set_status(AssistantStatus.SEARCHING)
+    await _send_or_broadcast(websocket, {"state": "SEARCHING", "payload": "Buduje display wyniku."})
+    await _send_ui_event(websocket, "wyszukuje kontekst w sieci")
+    payload = await asyncio.to_thread(plan_visual_result, question, answer)
+    if not payload:
+        return False
+
+    trace = payload.get("planner_trace") or {}
+    logger.info(
+        (
+            "Visual planner generated display. mode=%s subject=%s source=%s "
+            "confidence=%s search_query=%s validation=%s candidates=%s"
+        ),
+        payload.get("mode"),
+        payload.get("subject") or payload.get("title"),
+        trace.get("selection_source"),
+        trace.get("confidence"),
+        trace.get("search_query"),
+        trace.get("validation"),
+        trace.get("candidate_subjects"),
+    )
+    visual_result_history.append(payload)
+    del visual_result_history[:-8]
+    engine.assistant_state.set_status(AssistantStatus.DISPLAYING_RESULT)
+    await _send_ui_event(websocket, "zbudowano display")
+    await _send_or_broadcast(websocket, {"state": "VISUAL_RESULT", "payload": payload})
+    return True
 
 
 async def _send_event(websocket: WebSocket | None, event: ConversationEvent) -> None:

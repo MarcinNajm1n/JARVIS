@@ -13,4 +13,6 @@ def test_router_wybiera_pamiec_rag_tool_i_llm():
     assert classify_intent("zapamietaj ze lubie krotkie odpowiedzi").route == RouteType.MEMORY
     assert classify_intent("przeczytaj dokument decyzje pdf").route == RouteType.RAG
     assert classify_intent("dodaj zadanie sprawdzic STT").route == RouteType.TOOL
+    assert classify_intent("jaka jest pogoda w Berlinie").intent == IntentType.WEATHER_QUERY
+    assert classify_intent("czy pada w Berlinie").route == RouteType.TOOL
     assert classify_intent("co myslisz o architekturze").route == RouteType.LLM

@@ -17,6 +17,7 @@ from src.long_term_memory import (
     zapisz_pamiec_stala,
 )
 from src.response_modes import list_modes
+from src.weather_service import get_current_weather
 
 
 RISK_SAFE = "safe"
@@ -314,6 +315,23 @@ JARVIS_FUNCTION_TOOLS: list[dict[str, Any]] = [
         },
         "strict": True,
     },
+    {
+        "type": "function",
+        "name": "get_weather",
+        "description": "Pobiera aktualna pogode dla wskazanej lokalizacji i zwraca dane do panelu wizualnego.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "Miasto albo lokalizacja, np. Berlin.",
+                }
+            },
+            "required": ["location"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
 
@@ -334,6 +352,7 @@ JARVIS_TOOL_RISK: dict[str, str] = {
     "remove_memory": RISK_REQUIRES_CONFIRMATION,
     "clear_memory": RISK_DANGEROUS,
     "search_commands": RISK_SAFE,
+    "get_weather": RISK_SAFE,
 }
 
 
@@ -507,6 +526,10 @@ def _execute_known_tool(
     if name == "search_commands":
         query = _require_text(arguments, "query")
         return {"commands": search_command_catalog(query)}
+
+    if name == "get_weather":
+        location = _require_text(arguments, "location")
+        return get_current_weather(location).to_visual_payload()
 
     raise ValueError(f"Nieznane narzedzie: {name}")
 

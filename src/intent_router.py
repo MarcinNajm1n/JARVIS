@@ -9,6 +9,7 @@ from src.voice_commands import (
     is_tts_stop_command,
     normalize_voice_command,
 )
+from src.weather_service import is_weather_query
 
 
 class IntentType(StrEnum):
@@ -23,6 +24,7 @@ class IntentType(StrEnum):
     FORGET = "forget"
     STATUS = "status"
     PROJECT_STATUS = "project_status"
+    WEATHER_QUERY = "weather_query"
     RAG_QUERY = "rag_query"
     TOOL = "tool"
     LLM = "llm"
@@ -66,6 +68,8 @@ def classify_intent(text: str) -> RouteDecision:
     if _contains_any(normalized, ("pokaz status", "jaki status", "status systemu", "co z projektem")):
         intent = IntentType.PROJECT_STATUS if "projekt" in tokens else IntentType.STATUS
         return RouteDecision(intent, RouteType.LOCAL, 0.86, "status intent")
+    if is_weather_query(text):
+        return RouteDecision(IntentType.WEATHER_QUERY, RouteType.TOOL, 0.88, "weather query intent")
     if _contains_any(normalized, ("zapamietaj", "zapisz w pamieci", "to jest wazne")):
         return RouteDecision(IntentType.REMEMBER, RouteType.MEMORY, 0.86, "memory write intent")
     if _contains_any(normalized, ("zapomnij", "usun z pamieci", "nie pamietaj")):
