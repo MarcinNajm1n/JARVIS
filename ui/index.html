@@ -4,9 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JARVIS</title>
-    <link rel="stylesheet" href="./styles.css?v=4" />
+    <link rel="stylesheet" href="./styles.css?v=14" />
   </head>
   <body>
+    <div class="top-cost-meter" aria-label="Koszt i tokeny API">
+      <span>API COST</span>
+      <strong id="costMeter">$0.000000</strong>
+      <small id="tokenMeter">in 0 / out 0</small>
+    </div>
     <main class="stage">
       <section class="cockpit left-panel" aria-label="Status">
         <div class="panel-block">
@@ -20,10 +25,6 @@
         <div class="panel-block">
           <h2>SYSTEMS</h2>
           <p id="systemsPanel"></p>
-        </div>
-        <div class="panel-block">
-          <h2>COST</h2>
-          <p id="costPanel">$0.000000</p>
         </div>
         <div class="panel-block">
           <h2>WAKE TRANSCRIPT</h2>
@@ -67,10 +68,6 @@
           <span>LOCAL</span>
           <span>LOW LATENCY</span>
         </div>
-        <div class="cost-meter" aria-label="Koszt rozmow LLM">
-          <span>COST</span>
-          <strong id="costMeter">$0.000000</strong>
-        </div>
         <p id="transcript"></p>
         <div class="memory-actions" id="memoryActions" hidden>
           <button id="saveMemoryButton" type="button" title="Zapisz fakt">SAVE MEMORY</button>
@@ -105,6 +102,6 @@
         </div>
       </section>
     </main>
-    <script src="./app.js?v=4"></script>
+    <script src="./app.js?v=13"></script>
   </body>
 </html>

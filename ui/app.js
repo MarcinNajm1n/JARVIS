@@ -9,8 +9,8 @@ const setupWarning = document.querySelector("#setupWarning");
 const taskPanel = document.querySelector("#taskPanel");
 const projectPanel = document.querySelector("#projectPanel");
 const systemsPanel = document.querySelector("#systemsPanel");
-const costPanel = document.querySelector("#costPanel");
 const costMeter = document.querySelector("#costMeter");
+const tokenMeter = document.querySelector("#tokenMeter");
 const briefingPanel = document.querySelector("#briefingPanel");
 const memoryPanel = document.querySelector("#memoryPanel");
 const micButton = document.querySelector("#micButton");
@@ -60,7 +60,7 @@ function renderDashboard(data) {
   const cost = data.cost || {};
   const estimatedCost = Number(cost.estimated_cost_usd || 0).toFixed(6);
   costMeter.textContent = `$${estimatedCost}`;
-  costPanel.textContent = `$${estimatedCost} | in ${cost.input_tokens || 0} / out ${cost.output_tokens || 0}`;
+  tokenMeter.textContent = `in ${cost.input_tokens || 0} / out ${cost.output_tokens || 0}`;
   systemsPanel.textContent = [
     `intent: ${data.last_intent || "none"}`,
     `route: ${data.last_route || "none"}`,

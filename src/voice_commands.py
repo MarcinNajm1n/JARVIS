@@ -4,6 +4,30 @@ import re
 import unicodedata
 
 
+POLISH_TRANSLATION = str.maketrans(
+    {
+        "ą": "a",
+        "ć": "c",
+        "ę": "e",
+        "ł": "l",
+        "ń": "n",
+        "ó": "o",
+        "ś": "s",
+        "ź": "z",
+        "ż": "z",
+        "Ą": "a",
+        "Ć": "c",
+        "Ę": "e",
+        "Ł": "l",
+        "Ń": "n",
+        "Ó": "o",
+        "Ś": "s",
+        "Ź": "z",
+        "Ż": "z",
+    }
+)
+
+
 ASSISTANT_NAME_ALIASES = {
     "jarvis",
     "jarwis",
@@ -140,7 +164,7 @@ def is_shutdown_command(text: str) -> bool:
 
 
 def normalize_voice_command(text: str) -> str:
-    text = text.strip().lower()
+    text = text.strip().translate(POLISH_TRANSLATION).lower()
     text = unicodedata.normalize("NFKD", text)
     text = "".join(character for character in text if not unicodedata.combining(character))
     text = re.sub(r"[^a-z0-9 ]+", " ", text)

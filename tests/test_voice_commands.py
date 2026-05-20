@@ -38,8 +38,11 @@ def test_activation_command_odrzuca_zwykle_zdanie():
 def test_shutdown_command_akceptuje_naturalne_warianty():
     for command in [
         "Jarvis wylacz sie",
+        "Jarwis wyłącz się",
+        "jarvis wyłącz się",
         "jarvis wylacz sie",
         "jarvis wylacz",
+        "jarvis wyłącz",
         "jarvis dezaktywacja",
         "jarvis dezaktywuj sie",
         "jarvis zamknij program",

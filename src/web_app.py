@@ -133,6 +133,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             for event in engine.stream_response(text, utterance_end_time):
                 await _send_event(websocket, event)
+            await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
             await _settle_after_response(websocket, return_to_sleeping=False)
             await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
 
@@ -307,6 +308,10 @@ async def _run_awake_conversation(
         for event in engine.stream_response(command_text, utterance_end_time):
             await _send_event(websocket, event)
 
+        await _send_or_broadcast(
+            websocket,
+            {"state": "DASHBOARD", "payload": build_dashboard_snapshot()},
+        )
         await _settle_after_response(websocket, return_to_sleeping=False)
         await _send_or_broadcast(
             websocket,
