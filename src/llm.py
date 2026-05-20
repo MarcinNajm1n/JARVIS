@@ -9,6 +9,7 @@ from openai import OpenAI, OpenAIError
 
 from src.command_catalog import format_command_catalog_for_prompt
 from src.config import Settings, load_settings, require_openai_api_key
+from src.cost_tracker import CostTracker, extract_response_usage
 from src.logger import get_logger
 from src.long_term_memory import formatuj_pamiec_do_promptu
 
@@ -25,6 +26,7 @@ class LLMClient:
         self.settings = self.settings or load_settings()
         self._client: OpenAI | None = None
         self._logger = get_logger(__name__)
+        self.cost_tracker = CostTracker(self.settings)
 
     @property
     def client(self) -> OpenAI:
@@ -109,6 +111,7 @@ class LLMClient:
                 instructions=instructions,
                 input_messages=input_messages,
                 tools=tools,
+                source="generate_response",
             )
 
             if tools and tool_executor:
@@ -148,6 +151,7 @@ class LLMClient:
                 instructions=instructions,
                 input=[{"role": "user", "content": text}],
             )
+            self._record_usage(response, "correct_transcript")
             corrected = self._extract_response_text(response).strip().strip('"').strip("'")
             max_reasonable_length = max(len(text) * 2, len(text) + 80)
             if not corrected or len(corrected) > max_reasonable_length:
@@ -169,6 +173,7 @@ class LLMClient:
         instructions: str,
         input_messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
+        source: str = "responses_api",
     ) -> Any:
         request: dict[str, Any] = {
             "model": self.settings.llm_model,
@@ -179,7 +184,9 @@ class LLMClient:
             request["tools"] = tools
             request["tool_choice"] = "auto"
 
-        return self.client.responses.create(**request)
+        response = self.client.responses.create(**request)
+        self._record_usage(response, source)
+        return response
 
     def _resolve_tool_calls(
         self,
@@ -213,6 +220,7 @@ class LLMClient:
                 instructions=instructions,
                 input_messages=current_input,
                 tools=tools,
+                source="tool_followup",
             )
 
         return "Nie udalo sie zakonczyc wywolan narzedzi w bezpiecznym limicie rund."
@@ -250,7 +258,8 @@ class LLMClient:
                         delta = getattr(event, "delta", "")
                         if delta:
                             yield str(delta)
-                stream.get_final_response()
+                final_response = stream.get_final_response()
+                self._record_usage(final_response, "stream_response")
 
         except OpenAIError as error:
             self._logger.exception("OpenAI streaming LLM request failed")
@@ -285,6 +294,17 @@ class LLMClient:
             )
 
         return calls
+
+    def _record_usage(self, response: Any, source: str) -> None:
+        input_tokens, output_tokens = extract_response_usage(response)
+        if not input_tokens and not output_tokens:
+            return
+        self.cost_tracker.record_llm_usage(
+            model=self.settings.llm_model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            source=source,
+        )
 
     @classmethod
     def _extract_response_text(cls, response: Any) -> str:

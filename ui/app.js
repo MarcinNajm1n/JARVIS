@@ -8,6 +8,10 @@ const setupWarningBlock = document.querySelector("#setupWarningBlock");
 const setupWarning = document.querySelector("#setupWarning");
 const taskPanel = document.querySelector("#taskPanel");
 const projectPanel = document.querySelector("#projectPanel");
+const systemsPanel = document.querySelector("#systemsPanel");
+const costPanel = document.querySelector("#costPanel");
+const costMeter = document.querySelector("#costMeter");
+const briefingPanel = document.querySelector("#briefingPanel");
 const memoryPanel = document.querySelector("#memoryPanel");
 const micButton = document.querySelector("#micButton");
 const endRecordButton = document.querySelector("#endRecordButton");
@@ -53,11 +57,21 @@ function renderDashboard(data) {
   const gate = data.llm_gate === "active" ? "LLM ACTIVE" : "LLM BLOCKED";
   llmGate.textContent = gate;
   llmGate.dataset.gate = data.llm_gate || "blocked_until_wake";
+  const cost = data.cost || {};
+  const estimatedCost = Number(cost.estimated_cost_usd || 0).toFixed(6);
+  costMeter.textContent = `$${estimatedCost}`;
+  costPanel.textContent = `$${estimatedCost} | in ${cost.input_tokens || 0} / out ${cost.output_tokens || 0}`;
+  systemsPanel.textContent = [
+    `intent: ${data.last_intent || "none"}`,
+    `route: ${data.last_route || "none"}`,
+    `wake: ${data.wake_detector || "unknown"}`
+  ].join("\n");
   wakeTranscript.textContent = data.last_wake_transcript || "Czekam na aktywacje.";
   const warnings = Array.isArray(data.setup_warnings) ? data.setup_warnings : [];
   setupWarningBlock.hidden = warnings.length === 0;
   setupWarning.textContent = warnings.join("\n");
   projectPanel.textContent = data.project_status || data.active_project || "Brak aktywnego projektu.";
+  briefingPanel.textContent = data.briefing || "Brak briefingu.";
   memoryPanel.textContent = data.memory_review || "Pamiec jest pusta.";
   taskPanel.replaceChildren();
   const tasks = Array.isArray(data.tasks) ? data.tasks : [];

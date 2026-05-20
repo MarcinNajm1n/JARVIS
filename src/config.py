@@ -170,6 +170,8 @@ class Settings:
     assistant_state_path: Path
     tool_call_log_path: Path
     conversation_summary_path: Path
+    episodic_memory_path: Path
+    cost_log_path: Path
     feedback_path: Path
     chroma_collection: str
     tts_async_playback: bool
@@ -182,6 +184,8 @@ class Settings:
     post_speech_sleep_delay_seconds: float
     response_text_clear_delay_seconds: float
     follow_up_timeout_seconds: int
+    gpt_4_1_mini_input_cost_per_1m: float
+    gpt_4_1_mini_output_cost_per_1m: float
     latency_budget_seconds: float
     latency_critical_seconds: float
     chunk_ms: int
@@ -282,6 +286,8 @@ def load_settings() -> Settings:
             "CONVERSATION_SUMMARY_PATH",
             "data/conversation_summary.json",
         ),
+        episodic_memory_path=_path_from_env("EPISODIC_MEMORY_PATH", "data/episodic_memory.json"),
+        cost_log_path=_path_from_env("COST_LOG_PATH", "data/usage_costs.json"),
         feedback_path=_path_from_env("FEEDBACK_PATH", "data/feedback.json"),
         chroma_collection=os.getenv("CHROMA_COLLECTION", "jarvis_memory"),
         tts_async_playback=_bool_from_env("TTS_ASYNC_PLAYBACK", True),
@@ -300,6 +306,14 @@ def load_settings() -> Settings:
             1.0,
         ),
         follow_up_timeout_seconds=_int_from_env("FOLLOW_UP_TIMEOUT_SECONDS", 10),
+        gpt_4_1_mini_input_cost_per_1m=_float_from_env(
+            "GPT_4_1_MINI_INPUT_COST_PER_1M",
+            0.40,
+        ),
+        gpt_4_1_mini_output_cost_per_1m=_float_from_env(
+            "GPT_4_1_MINI_OUTPUT_COST_PER_1M",
+            1.60,
+        ),
         latency_budget_seconds=_float_from_env("LATENCY_BUDGET_SECONDS", 2.0),
         latency_critical_seconds=_float_from_env("LATENCY_CRITICAL_SECONDS", 3.0),
         chunk_ms=_int_from_env("CHUNK_MS", 450),

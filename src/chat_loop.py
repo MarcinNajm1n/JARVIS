@@ -132,7 +132,7 @@ def _pobierz_wejscie(
             if is_shutdown_command(transkrypcja) or is_tts_stop_command(transkrypcja):
                 return transkrypcja, input_mode
 
-            if stt_client.contains_wake_phrase(transkrypcja):
+            if engine.wake_detector.detect_from_text(transkrypcja).activated:
                 get_logger(__name__).info("Wake phrase detected. Waiting for command.")
                 print(f"{NAZWA_ASYSTENTA}: Aktywacja wykryta.")
                 assistant_state.set_status(AssistantStatus.WAKE_DETECTED)

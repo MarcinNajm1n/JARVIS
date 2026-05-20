@@ -17,6 +17,8 @@ def test_naturalne_polecenie_model_wybiera_funkcje_i_store_sie_zmienia(tmp_path)
         assistant_state_path=tmp_path / "assistant_state.json",
         tool_call_log_path=tmp_path / "tool_calls.json",
         conversation_summary_path=tmp_path / "conversation_summary.json",
+        episodic_memory_path=tmp_path / "episodic_memory.json",
+        cost_log_path=tmp_path / "usage_costs.json",
         feedback_path=tmp_path / "feedback.json",
         tts_enabled=False,
         auto_memory_enabled=False,

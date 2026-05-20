@@ -65,7 +65,7 @@ def test_web_wake_gate_timeout_po_aktywacji_nie_wysyla_do_llm(monkeypatch):
 
     assert fake_engine.listen_for_command_calls == 2
     assert fake_engine.stream_calls == []
-    assert any(message["state"] == "AWAKE_CONFIRM" for message in websocket.messages)
+    assert any(message["state"] == "GOING_SLEEP" for message in websocket.messages)
     assert any(message["payload"] == "Mogę iść spać, szefie?" for message in websocket.messages)
     assert any(message["payload"] == "Wracam do snu." for message in websocket.messages)
 
@@ -86,7 +86,7 @@ def test_web_wake_gate_po_pytaniu_o_sen_przyjmuje_spozniona_komende(monkeypatch)
 
     assert fake_engine.listen_for_command_calls == 4
     assert fake_engine.stream_calls == [("sprawdz status projektu", 123.0)]
-    assert any(message["state"] == "AWAKE_CONFIRM" for message in websocket.messages)
+    assert any(message["state"] == "GOING_SLEEP" for message in websocket.messages)
 
 
 def test_web_wake_gate_po_odpowiedzi_przyjmuje_follow_up_bez_ponownej_aktywacji(monkeypatch):
@@ -277,6 +277,10 @@ class _FakeEngine:
         self.tts_client = _FakeTtsClient()
         self.pamiec_stala = []
         self.rag_memory = _FakeRagMemory()
+        self.wake_detector = _FakeWakeDetector(self.stt_client)
+        self.episodic_memory = _FakeEpisodicMemory()
+        self.cost_tracker = _FakeCostTracker()
+        self.last_route_decision = None
 
     def acknowledge_wake_detected(self):
         self.acknowledge_calls += 1
@@ -353,6 +357,40 @@ class _FakeTtsClient:
 class _FakeRagMemory:
     def status(self):
         return "RAG: disabled; documents: 0; index: not built; directory: data/documents"
+
+
+class _FakeWakeDetector:
+    def __init__(self, stt_client):
+        self.stt_client = stt_client
+
+    def detect_from_text(self, text):
+        return SimpleNamespace(
+            activated=self.stt_client.contains_wake_phrase(text),
+            method="fake",
+            confidence=0.9,
+        )
+
+    def status(self):
+        return "fake-wake-ready"
+
+
+class _FakeEpisodicMemory:
+    def recent_context(self, limit=5):
+        return "Brak epizodycznego kontekstu rozmowy."
+
+    def snapshot(self):
+        return {"events_count": 0, "recent_context": self.recent_context()}
+
+
+class _FakeCostTracker:
+    def snapshot(self):
+        return {
+            "model": "gpt-4.1-mini",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "records_count": 0,
+        }
 
 
 class _FakeSttClient:

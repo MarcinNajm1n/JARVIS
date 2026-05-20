@@ -19,7 +19,9 @@ from src.logger import configure_logging, get_logger
 from src.long_term_memory import formatuj_memory_review
 from src.long_term_memory import zapisz_pamiec_stala
 from src.memory_store import zapisz_historie
+from src.operational_briefing import build_operational_briefing
 from src.startup_checks import read_startup_warnings
+from src.intent_router import IntentType, classify_intent
 from src.voice_commands import is_shutdown_command, is_tts_stop_command
 
 
@@ -159,10 +161,24 @@ def serialize_event(event: ConversationEvent) -> dict[str, str]:
 
 def build_dashboard_snapshot() -> dict:
     active_project = engine.assistant_state.get_active_project()
+    route_decision = engine.last_route_decision
+    briefing = build_operational_briefing(
+        engine.assistant_state,
+        engine.task_store,
+        engine.project_store,
+        engine.episodic_memory,
+        engine.cost_tracker,
+    )
     return {
         "status": engine.assistant_state.get_status(),
         "llm_gate": "blocked_until_wake" if settings.input_mode == "wake" else "active",
         "history_enabled": engine.history_enabled,
+        "last_intent": route_decision.intent.value if route_decision else "none",
+        "last_route": route_decision.route.value if route_decision else "none",
+        "wake_detector": engine.wake_detector.status(),
+        "cost": engine.cost_tracker.snapshot(),
+        "briefing": briefing.format(),
+        "episodic_memory": engine.episodic_memory.snapshot(),
         "last_wake_transcript": last_wake_transcript,
         "last_response": last_response,
         "tasks": engine.task_store.list(include_done=True)[:8],
@@ -221,7 +237,8 @@ async def _handle_wake_scan(websocket: WebSocket | None = None) -> None:
     if await _handle_local_voice_command(wake_text, websocket):
         return
 
-    if not engine.stt_client.contains_wake_phrase(wake_text):
+    wake_detection = engine.wake_detector.detect_from_text(wake_text)
+    if not wake_detection.activated:
         logger.info("Wake gate ignored fragment without activation phrase.")
         await _send_or_broadcast(
             websocket,
@@ -237,7 +254,7 @@ async def _handle_wake_scan(websocket: WebSocket | None = None) -> None:
         websocket,
         {
             "state": "WAKE_DETECTED",
-            "payload": "Aktywacja wykryta.",
+            "payload": f"Aktywacja wykryta ({wake_detection.method}).",
         },
     )
     await asyncio.to_thread(engine.acknowledge_wake_detected)
@@ -286,6 +303,7 @@ async def _run_awake_conversation(
             await _offer_memory_candidate(websocket, command_text)
 
         logger.info("Sending activated voice command to LLM. Length: %s", len(command_text))
+        engine.assistant_state.set_status(AssistantStatus.ACTIVE_CONVERSATION)
         for event in engine.stream_response(command_text, utterance_end_time):
             await _send_event(websocket, event)
 
@@ -299,6 +317,7 @@ async def _run_awake_conversation(
             "Keeping JARVIS awake for follow-up command for %s seconds.",
             settings.follow_up_timeout_seconds,
         )
+        engine.assistant_state.set_status(AssistantStatus.WAITING_FOLLOWUP)
         command_text, utterance_end_time = await _listen_once_for_command(
             websocket,
             max_seconds=settings.follow_up_timeout_seconds,
@@ -339,11 +358,11 @@ async def _ask_before_sleeping(websocket: WebSocket | None = None) -> tuple[str,
         "No command after wake phrase. Asking sleep confirmation and listening for %s seconds.",
         settings.awake_confirmation_timeout_seconds,
     )
-    engine.assistant_state.set_status(AssistantStatus.AWAKE_CONFIRM)
+    engine.assistant_state.set_status(AssistantStatus.GOING_SLEEP)
     await _send_or_broadcast(
         websocket,
         {
-            "state": "AWAKE_CONFIRM",
+            "state": "GOING_SLEEP",
             "payload": prompt,
         },
     )
@@ -410,12 +429,55 @@ def _extract_command_after_wake_phrase(text: str) -> str:
 
 
 async def _handle_local_voice_command(text: str, websocket: WebSocket | None = None) -> bool:
+    decision = classify_intent(text)
+    engine.last_route_decision = decision
+
     if is_tts_stop_command(text):
         logger.info("Local voice command received: stop TTS.")
         engine.stop_audio()
         await _send_or_broadcast(
             websocket,
             {"state": "SLEEPING", "payload": "Przerywam odtwarzanie."},
+        )
+        return True
+
+    if decision.intent == IntentType.SLEEP:
+        logger.info("Local voice command received: sleep.")
+        engine.assistant_state.set_status(AssistantStatus.SLEEPING)
+        await _send_or_broadcast(
+            websocket,
+            {"state": "SLEEPING", "payload": "Przechodze w tryb czuwania."},
+        )
+        return True
+
+    if decision.intent == IntentType.REPEAT:
+        logger.info("Local voice command received: repeat last response.")
+        payload = last_response or "Nie mam jeszcze czego powtorzyc."
+        if last_response:
+            await asyncio.to_thread(engine.tts_client.speak, last_response, False)
+        await _send_or_broadcast(websocket, {"state": "SPEAKING", "payload": payload})
+        return True
+
+    if decision.intent in {IntentType.STATUS, IntentType.PROJECT_STATUS}:
+        logger.info("Local voice command received: status.")
+        briefing = build_operational_briefing(
+            engine.assistant_state,
+            engine.task_store,
+            engine.project_store,
+            engine.episodic_memory,
+            engine.cost_tracker,
+        )
+        await _send_or_broadcast(websocket, {"state": "IDLE", "payload": briefing.format()})
+        await _send_or_broadcast(websocket, {"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
+        return True
+
+    if decision.intent in {IntentType.VOLUME_DOWN, IntentType.VOLUME_UP}:
+        await _send_or_broadcast(
+            websocket,
+            {
+                "state": "IDLE",
+                "payload": "Rozpoznalem intencje zmiany glosnosci; sterowanie mikserem dodamy jako osobne narzedzie.",
+            },
         )
         return True
 

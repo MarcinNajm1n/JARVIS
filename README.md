@@ -104,6 +104,8 @@ Najwazniejsze opcje:
 - `POST_SPEECH_SLEEP_DELAY_SECONDS=5.0` - pauza po zakonczeniu TTS zanim UI wroci do `SLEEPING`.
 - `RESPONSE_TEXT_CLEAR_DELAY_SECONDS=1.0` - ile sekund po odpowiedzi glosowej tekst JARVISA moze jeszcze widniec w kokpicie.
 - `FOLLOW_UP_TIMEOUT_SECONDS=10` - ile sekund po odpowiedzi JARVIS czeka na kolejne pytanie bez ponownej aktywacji.
+- `COST_LOG_PATH=data/usage_costs.json` - lokalny licznik tokenow i szacowanego kosztu rozmow LLM od momentu wlaczenia pomiaru.
+- `GPT_4_1_MINI_INPUT_COST_PER_1M=0.40` i `GPT_4_1_MINI_OUTPUT_COST_PER_1M=1.60` - stawki do lokalnego licznika kosztow `gpt-4.1-mini`.
 - `MICROPHONE_SENSITIVITY=normal` - czulosc mikrofonu: `high`, `normal`, `low`.
 - `SPEECH_END_SILENCE_SECONDS=0.9` - po takiej ciszy program konczy nagrywanie.
 - `SPEECH_RMS_THRESHOLD=500` - reczny prog glosnosci dla wykrywania mowy, uzywany gdy nie ustawisz `MICROPHONE_SENSITIVITY`.

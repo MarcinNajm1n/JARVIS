@@ -10,12 +10,16 @@ from src.assistant_state import AssistantStateStore, AssistantStatus
 from src.auto_memory import extract_memory_candidate
 from src.command_handler import obsluz_komende
 from src.config import Settings, load_settings
+from src.cost_tracker import CostTracker
+from src.episodic_memory import EpisodicMemoryStore
 from src.function_tools import (
     JARVIS_FUNCTION_TOOLS,
     JarvisToolContext,
     execute_jarvis_tool,
 )
+from src.intent_router import RouteDecision, classify_intent
 from src.llm import LLMClient, Message
+from src.local_wake_detector import LocalWakeDetector
 from src.logger import get_logger
 from src.long_term_memory import (
     dodaj_wpis_pamieci,
@@ -83,6 +87,7 @@ class ConversationEngine:
         self.llm_client = LLMClient(self.settings)
         self.stt_client = SpeechToTextClient(self.settings)
         self.transcript_corrector = TranscriptCorrector(self.settings)
+        self.wake_detector = LocalWakeDetector(self.stt_client)
         self.tts_client = TextToSpeechClient(self.settings)
         self.rag_memory = RAGMemory(self.settings)
         self.rag_memory.ensure_index()
@@ -90,6 +95,9 @@ class ConversationEngine:
         self.profile_store = UserProfileStore(self.settings)
         self.task_store = TaskStore(self.settings)
         self.project_store = ProjectStore(self.settings)
+        self.episodic_memory = EpisodicMemoryStore(self.settings)
+        self.cost_tracker = CostTracker(self.settings)
+        self.last_route_decision: RouteDecision | None = None
         self.historia: list[Message] = wczytaj_historie(self.settings.history_path)
         self.history_enabled = self.settings.history_enabled
         self.podsumowanie_historii = wczytaj_podsumowanie_historii(
@@ -170,6 +178,7 @@ class ConversationEngine:
             return payload
 
         self._maybe_auto_memory(user_text)
+        self._remember_turn("user", user_text)
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
         self._logger.info("Sending command to LLM. Source: generate_response; length: %s", len(user_text))
@@ -190,6 +199,7 @@ class ConversationEngine:
             tool_executor=self._execute_function_tool,
         )
         self.historia.append({"role": "assistant", "content": response})
+        self._remember_turn("assistant", response)
         self._save_history()
 
         if speak and czy_mowa_wlaczona() and not response.startswith("Wystapil blad"):
@@ -213,6 +223,7 @@ class ConversationEngine:
             return
 
         self._maybe_auto_memory(user_text)
+        self._remember_turn("user", user_text)
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
         self._logger.info("Sending command to LLM. Source: stream_response; length: %s", len(user_text))
@@ -246,6 +257,7 @@ class ConversationEngine:
                 self.tts_client.speak(final_response, blocking=False)
 
             self.historia.append({"role": "assistant", "content": final_response})
+            self._remember_turn("assistant", final_response)
             self._save_history()
             yield ConversationEvent(AssistantStatus.IDLE.value.upper(), final_response)
             return
@@ -301,10 +313,12 @@ class ConversationEngine:
             self.tts_client.speak(final_response, blocking=False)
 
         self.historia.append({"role": "assistant", "content": final_response})
+        self._remember_turn("assistant", final_response)
         self._save_history()
         yield ConversationEvent(AssistantStatus.IDLE.value.upper(), final_response)
 
     def _handle_command(self, user_text: str) -> tuple[bool, str]:
+        self.last_route_decision = classify_intent(user_text)
         command_handled, self.historia, self.pamiec_stala = obsluz_komende(
             user_text,
             self.historia,
@@ -319,6 +333,12 @@ class ConversationEngine:
             tts_client=self.tts_client,
         )
         return command_handled, "Komenda wykonana." if command_handled else ""
+
+    def _remember_turn(self, role: str, text: str) -> None:
+        preview = text.strip()
+        if len(preview) > 260:
+            preview = f"{preview[:257]}..."
+        self.episodic_memory.remember_event(role, preview)
 
     def _get_function_tools(self) -> list[dict] | None:
         if not self.settings.function_calling_enabled:

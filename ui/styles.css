@@ -284,6 +284,31 @@ body[data-state="thinking"] .orbit-b {
   font-size: 0.68rem;
 }
 
+.cost-meter {
+  display: grid;
+  justify-items: center;
+  min-width: min(360px, 100%);
+  padding: 8px 14px;
+  border-top: 1px solid rgba(95, 255, 200, 0.54);
+  border-bottom: 1px solid rgba(126, 226, 255, 0.34);
+  background: rgba(5, 12, 19, 0.68);
+}
+
+.cost-meter span {
+  color: #8aeaff;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.cost-meter strong {
+  color: #5fffc8;
+  font-size: 1.42rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+  text-shadow: 0 0 16px rgba(95, 255, 200, 0.32);
+}
+
 .status-dot {
   width: 9px;
   height: 9px;
@@ -298,8 +323,14 @@ body[data-state="thinking"] .orbit-b {
 
 .status-dot.wake_detected,
 .status-dot.listening_command,
-.status-dot.awake_confirm {
+.status-dot.awake_confirm,
+.status-dot.active_conversation,
+.status-dot.waiting_followup {
   background: #5fffc8;
+}
+
+.status-dot.going_sleep {
+  background: #d1b3ff;
 }
 
 .status-dot.thinking {

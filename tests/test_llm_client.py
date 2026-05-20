@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.llm import LLMClient
 from src.llm_client import przygotuj_historie_do_api
 from src.config import load_settings
+from dataclasses import replace
 
 
 def test_load_settings_zostawia_tani_model_gpt_4_1_mini():
@@ -104,6 +105,27 @@ def test_correct_transcript_odrzuca_podejrzanie_dlugi_wynik():
     result = client.correct_transcript("open ai")
 
     assert result == "open ai"
+
+
+def test_generate_response_rejestruje_koszt_gdy_api_zwraca_usage(tmp_path):
+    settings = replace(load_settings(), cost_log_path=tmp_path / "usage_costs.json")
+    fake_client = _FakeOpenAIClient([
+        SimpleNamespace(
+            output=[],
+            output_text="Odpowiedz testowa.",
+            usage=SimpleNamespace(input_tokens=1000, output_tokens=500),
+        )
+    ])
+    client = LLMClient(settings)
+    client._client = fake_client
+
+    result = client.generate_response(
+        history=[{"role": "user", "content": "Test"}],
+        long_term_memory=[],
+    )
+
+    assert result == "Odpowiedz testowa."
+    assert client.cost_tracker.snapshot()["estimated_cost_usd"] == 0.0012
 
 
 class _FakeOpenAIClient:
