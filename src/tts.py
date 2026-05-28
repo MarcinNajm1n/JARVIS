@@ -9,7 +9,9 @@ from pathlib import Path
 from openai import OpenAI, OpenAIError
 
 from src.config import Settings, load_settings, require_openai_api_key
+from src.elevenlabs_client import ElevenLabsVoiceClient
 from src.logger import get_logger
+from src.voice_state import aktywny_provider_glosu
 
 
 class ChunkedSpeechQueue:
@@ -79,6 +81,7 @@ class TextToSpeechClient:
     def __post_init__(self) -> None:
         self.settings = self.settings or load_settings()
         self._client: OpenAI | None = None
+        self._elevenlabs_client: ElevenLabsVoiceClient | None = None
         self._logger = get_logger(__name__)
         self._playback_thread: threading.Thread | None = None
         self._stop_requested = threading.Event()
@@ -90,12 +93,27 @@ class TextToSpeechClient:
             self._client = OpenAI(api_key=api_key)
         return self._client
 
+    @property
+    def elevenlabs_client(self) -> ElevenLabsVoiceClient:
+        if self._elevenlabs_client is None:
+            self._elevenlabs_client = ElevenLabsVoiceClient(self.settings)
+        return self._elevenlabs_client
+
     def generate_speech(self, text: str, output_path: Path | None = None) -> Path | None:
         if not text.strip() or not self.settings.tts_enabled:
             return None
 
         output_path = output_path or self.settings.tts_output_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if (
+            aktywny_provider_glosu() == "elevenlabs"
+            and self.settings.elevenlabs_tts_enabled
+        ):
+            elevenlabs_output = self.elevenlabs_client.generate_speech(text, output_path)
+            if elevenlabs_output is not None:
+                return elevenlabs_output
+            self._logger.warning("ElevenLabs TTS unavailable; falling back to OpenAI TTS.")
 
         try:
             with self.client.audio.speech.with_streaming_response.create(

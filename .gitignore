@@ -1,19 +1,76 @@
 .venv/
+venv/
+ENV/
 __pycache__/
 .pytest_cache/
-*.pyc
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+*.pyo
+
+# Local secrets and credentials.
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+credentials.*
+secrets.*
+.npmrc
+.pypirc
+.netrc
 
 # Local editor/vault metadata. Can reveal workspace state, open files and plugins.
 .obsidian/
+.vscode/
+.idea/
+*.code-workspace
+
+# OS and temporary files.
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.log
+
+# Archives and database dumps.
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.sql
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
 
 # Generated project graph output. Can include derived Obsidian/workspace metadata
 # and snapshots of local runtime files, so keep it local unless intentionally shared.
 graphify-out/
 
-# Runtime data. Keep only the directory skeleton in git.
+# Runtime cache and private local state.
+.cache/
 data/*
 !data/documents/
+data/documents/**
 !data/documents/.gitkeep
 !data/vector_store/
+data/vector_store/**
 !data/vector_store/.gitkeep
+
+# Runtime audio and generated media.
+data/**/*.wav
+data/**/*.mp3
+data/**/*.m4a
+data/**/*.ogg

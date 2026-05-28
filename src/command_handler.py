@@ -6,6 +6,7 @@ from typing import Any
 from config import MODEL_LLM, NAZWA_ASYSTENTA
 from src.briefing import build_briefing
 from src.command_catalog import format_command_help
+from src.config import format_openai_api_key_diagnostics
 from src.debug_utils import czy_debug_wlaczony, ustaw_debug
 from src.feedback_store import FeedbackStore
 from src.long_term_memory import (
@@ -21,7 +22,7 @@ from src.long_term_memory import (
 from src.memory_store import SCIEZKA_HISTORII, wyczysc_historie
 from src.response_modes import list_modes
 from src.voice_commands import is_tts_stop_command
-from src.voice_state import czy_mowa_wlaczona, ustaw_mowe
+from src.voice_state import aktywny_provider_glosu, czy_mowa_wlaczona, ustaw_mowe, ustaw_provider_glosu
 
 
 def pokaz_pomoc() -> None:
@@ -53,6 +54,7 @@ def obsluz_komende(
         print(f"Historia rozmowy: {len(historia)} wiadomosci")
         print(f"Pamiec stala: {len(pamiec_stala)} wpisow")
         print(f"Odpowiedzi glosowe TTS: {status_mowy}")
+        print(f"Provider glosu: {aktywny_provider_glosu()}")
         if assistant_state is not None:
             print(f"Tryb odpowiedzi: {assistant_state.get_response_mode()}")
             print(f"Aktywny projekt: {assistant_state.get_active_project() or 'brak'}")
@@ -61,6 +63,11 @@ def obsluz_komende(
 
     if tekst == "/model":
         print(f"{NAZWA_ASYSTENTA}: Aktualny model LLM: {MODEL_LLM}")
+        print()
+        return True, historia, pamiec_stala
+
+    if tekst in {"/env", "/env status"}:
+        print(f"{NAZWA_ASYSTENTA}: {format_openai_api_key_diagnostics()}")
         print()
         return True, historia, pamiec_stala
 
@@ -199,7 +206,7 @@ def _obsluz_komende_voice(tekst: str) -> None:
 
     if len(czesci) == 1 or czesci[1] == "status":
         status = "wlaczona" if czy_mowa_wlaczona() else "wylaczona"
-        print(f"{NAZWA_ASYSTENTA}: Mowa jest {status}.")
+        print(f"{NAZWA_ASYSTENTA}: Mowa jest {status}. Provider: {aktywny_provider_glosu()}.")
         print()
         return
 
@@ -215,7 +222,19 @@ def _obsluz_komende_voice(tekst: str) -> None:
         print()
         return
 
-    print(f"{NAZWA_ASYSTENTA}: Uzyj: /voice on, /voice off albo /voice status")
+    if czesci[1] in {"openai", "standard", "jarvis"}:
+        ustaw_provider_glosu("openai")
+        print(f"{NAZWA_ASYSTENTA}: Przelaczylem glos na OpenAI/lokalny tryb standardowy.")
+        print()
+        return
+
+    if czesci[1] in {"elevenlabs", "eleven", "11labs"}:
+        ustaw_provider_glosu("elevenlabs")
+        print(f"{NAZWA_ASYSTENTA}: Przelaczylem STT/TTS na ElevenLabs, jesli modul jest wlaczony w .env.")
+        print()
+        return
+
+    print(f"{NAZWA_ASYSTENTA}: Uzyj: /voice on, /voice off, /voice openai, /voice elevenlabs albo /voice status")
     print()
 
 

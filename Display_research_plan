@@ -1,0 +1,685 @@
+# Display_research_plan
+
+## Cel
+
+Zbudowac dla JARVISA precyzyjny system wyszukiwania i prezentacji wynikow. Jesli temat istnieje w internecie, JARVIS powinien umiec znalezc:
+
+1. najwazniejsze informacje,
+2. odpowiednie zdjecia,
+3. raporty lub dokumenty,
+4. filmiki,
+5. zrodla i cytowalne linki,
+6. kontekst edukacyjny,
+7. poziom pewnosci danych.
+
+Display ma pokazywac wyniki w sposob uporzadkowany, animowany i zgodny z pytaniem. Nie chodzi o losowe obrazki z internetu. Chodzi o precyzyjny research pipeline: pytanie -> intencja -> filtry -> wyszukiwanie -> walidacja -> ranking -> display.
+
+## Zasady bazowe
+
+1. Bez aktywacji wake phrase nie ma LLM ani web search.
+2. Search nie moze zgadywac tematu niezaleznie od odpowiedzi JARVISA.
+3. Obrazy musza byc walidowane przeciwko tematowi.
+4. Raporty i filmy musza miec zrodla.
+5. Jesli brak pewnych danych, JARVIS ma powiedziec to wprost.
+6. Kazdy display ma miec `validation.status` i `validation.confidence`.
+7. Kazdy wynik ma miec `source_url`.
+8. UI ma pokazywac kilka wynikow, ale tylko po rankingu i walidacji.
+
+## Etap 1: Ustalenie typow wynikow
+
+Najpierw trzeba rozszerzyc model danych. Obecne `SearchResult` jest za ogolne. Docelowo potrzebujemy osobnych typow:
+
+```python
+SearchResult
+ImageResult
+VideoResult
+ReportResult
+ValidatedEvidence
+VisualBrief
+```
+
+### SearchResult
+
+```python
+{
+  "title": "...",
+  "url": "...",
+  "snippet": "...",
+  "source": "...",
+  "published_at": "...",
+  "confidence": 0.82
+}
+```
+
+### ImageResult
+
+```python
+{
+  "image_url": "...",
+  "thumbnail_url": "...",
+  "page_url": "...",
+  "caption": "...",
+  "source": "...",
+  "width": 1200,
+  "height": 800,
+  "license": "...",
+  "confidence": 0.91
+}
+```
+
+### VideoResult
+
+```python
+{
+  "title": "...",
+  "url": "...",
+  "thumbnail_url": "...",
+  "duration": "...",
+  "channel": "...",
+  "published_at": "...",
+  "source": "...",
+  "confidence": 0.84
+}
+```
+
+### ReportResult
+
+```python
+{
+  "title": "...",
+  "url": "...",
+  "file_type": "pdf",
+  "publisher": "...",
+  "published_at": "...",
+  "snippet": "...",
+  "confidence": 0.88
+}
+```
+
+## Etap 2: Query planner
+
+JARVIS nie powinien wysylac jednego surowego pytania do internetu. Najpierw potrzebny jest `QueryPlanner`.
+
+Plik docelowy:
+
+```txt
+src/research_query_planner.py
+```
+
+Wejscie:
+
+```python
+plan_queries(user_question: str, llm_answer: str | None) -> ResearchQueryPlan
+```
+
+Wyjscie:
+
+```json
+{
+  "topic": "Robert Oppenheimer",
+  "intent": "entity_research",
+  "language": "pl",
+  "freshness_required": false,
+  "queries": {
+    "web": ["Robert Oppenheimer biography", "Robert Oppenheimer Manhattan Project"],
+    "images": ["Robert Oppenheimer portrait", "Robert Oppenheimer official photo"],
+    "reports": ["Robert Oppenheimer Manhattan Project PDF", "Robert Oppenheimer report site:.edu"],
+    "videos": ["Robert Oppenheimer documentary", "Robert Oppenheimer interview"]
+  },
+  "filters": {
+    "must_include": ["Oppenheimer"],
+    "must_not_include": [],
+    "preferred_domains": ["wikipedia.org", "britannica.com", "nobelprize.org", "edu"],
+    "freshness_days": null
+  }
+}
+```
+
+## Etap 3: Filtry precyzji
+
+Filtry sa najwazniejsze, bo bez nich JARVIS bedzie znajdowal cokolwiek.
+
+### Filtry tekstowe
+
+1. `must_include`: slowa lub encje, ktore musza byc w tytule/snippet/url.
+2. `must_not_include`: slowa wykluczajace.
+3. `entity_aliases`: warianty imienia, nazwiska, nazwy firmy, miejsca.
+4. `language`: preferowany jezyk wynikow.
+5. `freshness`: czy wymagane sa aktualne dane.
+6. `source_type`: news, encyclopedia, report, academic, video, image.
+
+### Filtry domen
+
+Preferowane domeny dla faktow:
+
+1. encyklopedie,
+2. strony oficjalne,
+3. instytucje publiczne,
+4. uczelnie,
+5. raporty firmowe,
+6. media wysokiej wiarygodnosci.
+
+Preferowane domeny dla obrazow:
+
+1. Wikimedia Commons,
+2. Wikipedia thumbnails,
+3. oficjalne strony firm/osob,
+4. strony instytucji,
+5. archiwa publiczne,
+6. agencje informacyjne, jesli dostepne przez legalny URL.
+
+Preferowane domeny dla raportow:
+
+1. `.gov`,
+2. `.edu`,
+3. oficjalne PDF firm,
+4. organizacje branżowe,
+5. instytuty badawcze,
+6. repozytoria publikacji.
+
+Preferowane domeny dla filmow:
+
+1. YouTube,
+2. oficjalne kanaly,
+3. uczelnie,
+4. konferencje,
+5. media edukacyjne.
+
+## Etap 4: Search provider adapters
+
+Obecny fallback moze zostac, ale do precyzyjnego wyszukiwania potrzebujemy adapterow.
+
+Docelowy folder:
+
+```txt
+src/search_providers/
+```
+
+Pliki:
+
+```txt
+base.py
+duckduckgo_provider.py
+wikipedia_provider.py
+image_provider.py
+video_provider.py
+report_provider.py
+```
+
+Interfejs:
+
+```python
+class SearchProvider:
+    def search_web(self, query, filters): ...
+    def search_images(self, query, filters): ...
+    def search_videos(self, query, filters): ...
+    def search_reports(self, query, filters): ...
+```
+
+Na start mozemy miec:
+
+1. darmowy fallback DuckDuckGo/Wikipedia,
+2. Wikipedia/Wikimedia dla obrazow,
+3. Open-Meteo dla pogody,
+4. pozniej opcjonalnie platny provider z prawdziwym image/video/news search.
+
+## Etap 5: Image search pipeline
+
+Zdjecia wymagaja osobnego pipeline'u.
+
+### Krok 1: Kandydaci
+
+Zbieramy 8-12 kandydatow:
+
+1. image z profilu encji,
+2. Wikimedia Commons,
+3. obraz z DuckDuckGo/Instant Answer,
+4. miniatury z powiazanych wynikow,
+5. oficjalne strony,
+6. miniatury z video, ale tylko jako dodatkowe zrodlo.
+
+### Krok 2: Filtr techniczny
+
+Odrzucamy:
+
+1. brak `image_url`,
+2. obraz mniejszy niz minimalny prog, jesli znamy wymiary,
+3. placeholdery,
+4. ikony/logo, jesli pytanie dotyczy osoby,
+5. duplikaty,
+6. URL bez sensownego zrodla.
+
+### Krok 3: Filtr semantyczny
+
+Obraz musi przejsc:
+
+1. tytul strony zawiera temat lub alias,
+2. caption zawiera temat lub alias,
+3. source_url pasuje do zaufanej domeny,
+4. jesli dotyczy osoby, wynik nie moze byc inna osoba.
+
+### Krok 4: Ranking
+
+Punktacja:
+
+1. zgodnosc tytulu z encja: +30,
+2. zgodnosc caption z encja: +20,
+3. zaufana domena: +20,
+4. dobra rozdzielczosc: +10,
+5. unikalnosc: +10,
+6. aktualnosc, jesli wymagana: +10.
+
+Display pokazuje maksymalnie 4 najlepsze obrazy.
+
+## Etap 6: Report search pipeline
+
+Raporty maja byc traktowane inaczej niz zwykle strony.
+
+### Query examples
+
+```txt
+{topic} report PDF
+{topic} annual report PDF
+{topic} research paper PDF
+{topic} official report
+{topic} site:.gov filetype:pdf
+{topic} site:.edu filetype:pdf
+```
+
+### Filtry
+
+1. URL konczy sie na `.pdf` albo ma typ dokumentu.
+2. Tytul zawiera temat.
+3. Publisher jest zaufany.
+4. Snippet dotyczy tematu.
+5. Dla aktualnych tematow preferowane sa nowsze daty.
+
+### Display raportow
+
+Na displayu raporty powinny byc osobna sekcja:
+
+```txt
+Reports
+1. Title - publisher - date
+2. Title - publisher - date
+```
+
+Klikniecie moze otwierac zrodlo w przegladarce.
+
+## Etap 7: Video search pipeline
+
+Filmy sa przydatne dydaktycznie, ale latwo zlapac clickbait.
+
+### Filtry
+
+1. Tytul zawiera temat.
+2. Kanal lub source jest znany albo pasuje do tematu.
+3. Miniatura jest tylko dodatkiem, nie dowodem.
+4. Preferowane sa:
+   - oficjalne kanaly,
+   - uczelnie,
+   - wyklady,
+   - dokumenty,
+   - konferencje,
+   - wiarygodne media.
+
+### Ranking
+
+1. oficjalny kanal: +30,
+2. tytul zawiera encje: +25,
+3. opis zawiera encje: +15,
+4. edukacyjny format: +15,
+5. data pasuje do pytania: +10.
+
+### Display video
+
+Nie osadzamy od razu filmu, tylko pokazujemy:
+
+1. miniatura,
+2. tytul,
+3. kanal,
+4. czas/publikacja,
+5. link.
+
+## Etap 8: LLM validator mode
+
+Dodac opcjonalny tryb walidacji przez LLM.
+
+### Konfiguracja `.env`
+
+```env
+LLM_VALIDATOR_ENABLED=false
+LLM_VALIDATOR_MODEL=gpt-4.1-mini
+LLM_VALIDATOR_MAX_SOURCES=6
+LLM_VALIDATOR_MIN_CONFIDENCE=0.72
+LLM_VALIDATOR_VALIDATE_IMAGES=true
+LLM_VALIDATOR_VALIDATE_REPORTS=true
+LLM_VALIDATOR_VALIDATE_VIDEOS=true
+```
+
+Domyslnie `false`, zeby nie podbijac kosztow.
+
+### Wejscie do validatora
+
+```json
+{
+  "question": "...",
+  "topic": "...",
+  "llm_answer": "...",
+  "web_results": [],
+  "image_results": [],
+  "report_results": [],
+  "video_results": []
+}
+```
+
+### Oczekiwane wyjscie JSON
+
+```json
+{
+  "status": "supported",
+  "confidence": 0.86,
+  "topic_match": true,
+  "best_summary": "...",
+  "accepted_images": ["id1", "id2"],
+  "accepted_reports": ["id3"],
+  "accepted_videos": ["id4"],
+  "rejected_items": [
+    {
+      "id": "id5",
+      "reason": "topic_mismatch"
+    }
+  ],
+  "supported_claims": [
+    {
+      "text": "...",
+      "source_url": "...",
+      "confidence": 0.9
+    }
+  ],
+  "warnings": []
+}
+```
+
+### Prompt validatora
+
+Validator ma miec twarde zasady:
+
+1. Nie dodawaj nowych faktow.
+2. Uzywaj tylko dostarczonych zrodel.
+3. Odrzuc obraz, jesli nie pasuje do encji.
+4. Odrzuc raport, jesli tytul/snippet nie dotyczy tematu.
+5. Odrzuc film, jesli wyglada na clickbait albo inna encje.
+6. Jesli zrodla sa slabe, ustaw `status=uncertain`.
+7. Zwroc tylko JSON.
+
+## Etap 9: Research orchestrator
+
+Dodac glowny orchestrator.
+
+Plik:
+
+```txt
+src/research_orchestrator.py
+```
+
+Funkcja:
+
+```python
+build_research_brief(question, llm_answer=None) -> VisualBrief
+```
+
+Kroki:
+
+1. Zbuduj `ResearchQueryPlan`.
+2. Wykonaj web search.
+3. Wykonaj image search.
+4. Wykonaj report search.
+5. Wykonaj video search.
+6. Odfiltruj technicznie.
+7. Odfiltruj semantycznie.
+8. Zweryfikuj przez lokalny validator.
+9. Jesli wlaczony, zweryfikuj przez LLM validator.
+10. Zbuduj `VisualBrief`.
+11. Zapisz trace do `data/research_traces.json`.
+
+## Etap 10: Nowy VisualBrief
+
+To jest payload dla UI.
+
+```json
+{
+  "type": "visual_result",
+  "mode": "research_brief",
+  "topic": "...",
+  "title": "...",
+  "summary": "...",
+  "confidence": 0.86,
+  "images": [],
+  "reports": [],
+  "videos": [],
+  "claims": [],
+  "sources": [],
+  "trace": {
+    "queries": {},
+    "filters": {},
+    "rejected_count": 7,
+    "validator": "heuristic"
+  }
+}
+```
+
+Tryby UI:
+
+1. `research_brief`
+2. `entity_gallery`
+3. `source_wall`
+4. `video_strip`
+5. `report_stack`
+6. `timeline`
+7. `map_context`
+
+## Etap 11: Display - jak ma wygladac
+
+Fullscreen display powinien miec kilka warstw:
+
+1. Header: temat, confidence, status.
+2. Main visual: 3-4 obrazy w galerii.
+3. Facts: najwazniejsze informacje.
+4. Sources: lista zrodel.
+5. Reports: raporty/PDF.
+6. Videos: miniatury filmow.
+7. Trace: ukryty panel debug, tylko w trybie dev.
+
+### Animacja
+
+Kolejnosc:
+
+1. Kokpit zanika.
+2. Rdzen JARVISA pulsuje szybciej.
+3. Pojawia sie napis `SEARCHING`.
+4. Na ekran wchodza zrodla jako krotkie bloki.
+5. Validator oznacza zrodla jako accepted/rejected.
+6. Wchodza obrazy.
+7. Fakty pojawiaja sie po kolei.
+8. Raporty i filmiki pojawiaja sie jako dolny pasek.
+9. Po zakonczeniu JARVIS wraca do trybu rozmowy.
+
+## Etap 12: Filtry displaya
+
+Display nie powinien pokazywac wszystkiego.
+
+Pokazujemy:
+
+1. maksymalnie 4 obrazy,
+2. maksymalnie 5 faktow,
+3. maksymalnie 4 zrodla,
+4. maksymalnie 3 raporty,
+5. maksymalnie 3 filmy.
+
+Reszta trafia do historii wynikow.
+
+## Etap 13: Precyzja wyszukiwania
+
+Zeby JARVIS byl precyzyjny, kazdy wynik dostaje score:
+
+```txt
+score = entity_match + domain_quality + freshness + media_quality + validator_confidence - penalties
+```
+
+### Kary
+
+1. inna encja: -100,
+2. brak URL: -80,
+3. brak tytulu: -50,
+4. clickbait: -30,
+5. niska jakosc obrazu: -20,
+6. brak potwierdzenia w zrodlach: -50.
+
+### Progi
+
+1. `score >= 75` - pokazuj normalnie.
+2. `score 55-74` - pokazuj tylko jako dodatkowe zrodlo.
+3. `score < 55` - odrzuc.
+
+## Etap 14: Debug i observability
+
+Dodac plik:
+
+```txt
+data/research_traces.json
+```
+
+Kazdy research zapisuje:
+
+1. pytanie,
+2. wykryty topic,
+3. query web/image/report/video,
+4. liczbe wynikow,
+5. odrzucone wyniki i powody,
+6. wynik walidacji,
+7. finalny display payload.
+
+W UI w trybie dev mozna pokazac:
+
+```txt
+accepted: 9
+rejected: 14
+validator: heuristic/llm
+confidence: 0.86
+```
+
+## Etap 15: Integracja z obecnym programem
+
+Nie przepisujemy wszystkiego naraz.
+
+Kolejnosc integracji:
+
+1. `search_service.py` zostaje jako bazowy provider.
+2. Dodajemy `research_query_planner.py`.
+3. Dodajemy `research_orchestrator.py`.
+4. `visual_planner.py` zaczyna uzywac orchestratora, jesli pytanie wymaga researchu.
+5. `web_app.py` dalej wysyla `VISUAL_RESULT`.
+6. `ui/app.js` renderuje nowy `mode=research_brief`.
+7. Stare `entity_profile` i `map_weather` dalej dzialaja.
+
+## Etap 16: Testy backendu
+
+Dodac:
+
+```txt
+tests/test_research_query_planner.py
+tests/test_research_orchestrator.py
+tests/test_media_filters.py
+tests/test_llm_validator.py
+```
+
+Testy:
+
+1. pytanie o osobe generuje query web/images/videos/reports,
+2. wynik z inna osoba jest odrzucany,
+3. obraz bez topic match jest odrzucany,
+4. raport PDF bez topic match jest odrzucany,
+5. video clickbait jest odrzucany,
+6. LLM validator zwraca JSON i nie dodaje faktow,
+7. gdy validator ma niska pewnosc, display jest neutralny,
+8. bez aktywacji wake nie startuje research.
+
+## Etap 17: Testy UI
+
+Rozszerzyc:
+
+```txt
+tests/test_ui_dashboard.py
+```
+
+Testy:
+
+1. UI ma renderer `renderResearchBrief`.
+2. UI ma sekcje obrazow, raportow, filmow i zrodel.
+3. Dlugie teksty nie wychodza poza ekran.
+4. Display pokazuje maksymalnie 4 obrazy.
+5. Display pokazuje confidence.
+6. Brak wynikow pokazuje neutralny ekran.
+7. Emergency stop zamyka display.
+
+## Etap 18: Kolejnosc wykonania
+
+Najbezpieczniejsza kolejnosc:
+
+1. Dodac typy danych `ImageResult`, `VideoResult`, `ReportResult`.
+2. Dodac `ResearchQueryPlanner`.
+3. Dodac filtry `must_include`, `must_not_include`, `trusted_domains`.
+4. Dodac osobne search metody: web/images/reports/videos.
+5. Dodac heuristic validator.
+6. Dodac LLM validator mode za flaga `.env`.
+7. Dodac `ResearchOrchestrator`.
+8. Rozszerzyc `VISUAL_RESULT` o `research_brief`.
+9. Dodac UI renderer `renderResearchBrief`.
+10. Dodac animacje obrazow, raportow i video.
+11. Dodac debug trace.
+12. Uruchomic testy.
+13. Dopiero potem podmienic domyslny display na nowy research display.
+
+## Etap 19: Minimalny MVP tego etapu
+
+MVP powinien robic:
+
+1. pytanie: "kim jest Robert Oppenheimer",
+2. wykrycie topicu: `Robert Oppenheimer`,
+3. web search,
+4. image search z Wikimedia/Wikipedia/fallback,
+5. 3 fakty,
+6. 2-4 obrazy,
+7. 2 zrodla,
+8. confidence,
+9. fullscreen display,
+10. fallback, jesli brak pewnych obrazow.
+
+## Etap 20: Docelowy efekt
+
+Po wdrozeniu JARVIS powinien dzialac tak:
+
+1. Uzytkownik pyta: "Pokaz mi najwazniejsze informacje o Oppenheimerze".
+2. JARVIS rozpoznaje temat i typ researchu.
+3. Wyszukuje web/images/reports/videos.
+4. Odrzuca bledne obrazy i slabe zrodla.
+5. Opcjonalnie uruchamia LLM validator.
+6. Tworzy `research_brief`.
+7. UI przechodzi w fullscreen.
+8. Pokazuje galerie obrazow.
+9. Pokazuje fakty i zrodla.
+10. Pokazuje raporty/filmy, jesli sa sensowne.
+11. JARVIS krotko podsumowuje glosowo.
+
+## Ryzyka
+
+1. Darmowe wyszukiwarki moga miec slabe obrazy.
+2. Miniatury filmow moga nie byc legalnie dobre do bezposredniego displaya.
+3. LLM validator zwieksza koszt tokenow.
+4. Walidacja obrazow bez vision modelu jest oparta na metadanych, nie na pikselach.
+5. Provider search moze miec limity.
+
+## Rekomendacja
+
+Najpierw zrobic mocny heuristic validator i filtry metadanych. Dopiero potem wlaczyc `LLM_VALIDATOR_ENABLED=true`. To da dobra precyzje bez natychmiastowego wzrostu kosztow.

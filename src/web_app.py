@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import json
 import os
+import socket
 import threading
 import time
 from contextlib import asynccontextmanager
 from contextlib import suppress
+from pathlib import Path
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.app_launcher import close_app_window
@@ -22,6 +28,14 @@ from src.memory_store import zapisz_historie
 from src.operational_briefing import build_operational_briefing
 from src.startup_checks import read_startup_warnings
 from src.intent_router import IntentType, classify_intent
+from src.display import build_display_payload
+from src.graphify_cli import GraphifyParseError, build_local_graph
+from src.retrieval import (
+    RetrievalManager,
+    RetrievalResult,
+    build_realtime_llm_prompt,
+    parse_jarvis_answer,
+)
 from src.visual_planner import plan_visual_result
 from src.voice_commands import is_shutdown_command, is_tts_stop_command
 from src.weather_service import extract_weather_location, get_current_weather
@@ -31,6 +45,7 @@ settings = load_settings()
 configure_logging(settings.log_level)
 logger = get_logger(__name__)
 engine = ConversationEngine(settings)
+retrieval_manager = RetrievalManager(settings)
 ui_dir = PROJECT_ROOT / "ui"
 connected_websockets: set[WebSocket] = set()
 pending_memory_candidates: dict[WebSocket, str] = {}
@@ -39,6 +54,8 @@ last_response = ""
 visual_result_history: list[dict] = []
 recording_lock = asyncio.Lock()
 auto_wake_task: asyncio.Task | None = None
+IMAGE_PROXY_TIMEOUT_SECONDS = 8.0
+IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -70,6 +87,117 @@ def index() -> RedirectResponse:
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon() -> Response:
     return Response(status_code=204)
+
+
+@app.get("/api/image-proxy")
+async def image_proxy(url: str) -> Response:
+    if not _is_safe_remote_image_url(url):
+        logger.warning("Image proxy rejected unsafe URL: %s", _safe_url_for_log(url))
+        return Response("Invalid image URL", status_code=400)
+    try:
+        async with httpx.AsyncClient(
+            timeout=IMAGE_PROXY_TIMEOUT_SECONDS,
+            follow_redirects=False,
+            headers={"User-Agent": "JarvisImageProxy/1.0"},
+        ) as client:
+            response = await client.get(url)
+    except httpx.HTTPError as error:
+        logger.warning("Image proxy fetch failed url=%s error=%s", _safe_url_for_log(url), error)
+        return Response("Image fetch failed", status_code=502)
+
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    content_length = 0
+    with suppress(ValueError):
+        content_length = int(response.headers.get("content-length") or 0)
+    if 300 <= response.status_code < 400:
+        logger.warning("Image proxy rejected upstream redirect for %s", _safe_url_for_log(url))
+        return Response("Image redirects are not allowed", status_code=502)
+    if response.status_code >= 400:
+        logger.warning("Image proxy upstream returned %s for %s", response.status_code, _safe_url_for_log(url))
+        return Response("Image fetch failed", status_code=502)
+    if content_length > IMAGE_PROXY_MAX_BYTES or len(response.content) > IMAGE_PROXY_MAX_BYTES:
+        logger.warning("Image proxy rejected oversized image: %s", _safe_url_for_log(url))
+        return Response("Image too large", status_code=502)
+    if not content_type.startswith("image/"):
+        logger.warning("Image proxy rejected non-image content-type=%s url=%s", content_type, _safe_url_for_log(url))
+        return Response("Upstream content is not an image", status_code=502)
+    return Response(
+        response.content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+def _is_safe_remote_image_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    host = parsed.hostname.strip().lower()
+    if host in {"localhost", "0.0.0.0"} or host.endswith(".localhost"):
+        return False
+    if _is_blocked_ip(host):
+        return False
+    try:
+        resolved = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    return all(not _is_blocked_ip(address[4][0]) for address in resolved)
+
+
+def _is_blocked_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _safe_url_for_log(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "<invalid-url>"
+    host = parsed.hostname or "<missing-host>"
+    return f"{parsed.scheme}://{host}{parsed.path}"
+
+
+@app.get("/api/graph")
+def get_graph() -> JSONResponse:
+    graph_path = PROJECT_ROOT / "graphify-out" / "local_graph.json"
+    if not graph_path.exists():
+        graph_path = PROJECT_ROOT / "graphify-out" / "graph.json"
+    if not graph_path.exists():
+        return JSONResponse(
+            {
+                "type": "visual_result",
+                "mode": "graph",
+                "ok": False,
+                "title": "Graph unavailable",
+                "summary": "No graph file found. Run graphify . first.",
+                "nodes": [],
+                "edges": [],
+                "error": "EmptySearchResultError",
+            },
+            status_code=404,
+        )
+    return JSONResponse(json.loads(graph_path.read_text(encoding="utf-8")))
+
+
+@app.post("/api/graphify")
+async def run_graphify_api() -> dict:
+    payload = await _build_graphify_payload(".")
+    await _broadcast({"state": "GRAPH_READY", "payload": payload})
+    return payload
 
 
 @app.websocket("/api/ws")
@@ -130,14 +258,25 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await websocket.send_json({"state": "IDLE", "payload": ""})
                 continue
 
+            if await _handle_graphify_command(text, websocket):
+                continue
             if await _handle_local_voice_command(text, websocket):
                 continue
             if await _handle_visual_query(text, websocket):
                 continue
             await _offer_memory_candidate(websocket, text)
 
-            response_text = await _stream_engine_response(websocket, text, utterance_end_time)
-            await _send_planned_visual_result(websocket, text, response_text)
+            llm_text, retrieval_result = await _prepare_llm_text(websocket, text)
+            if isinstance(retrieval_result, RetrievalResult):
+                response_text = await _generate_realtime_response(
+                    websocket,
+                    text,
+                    llm_text,
+                    retrieval_result,
+                )
+            else:
+                response_text = await _stream_engine_response(websocket, llm_text, utterance_end_time)
+                await _send_planned_visual_result(websocket, text, response_text)
             await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
             await _settle_after_response(websocket, return_to_sleeping=False)
             await websocket.send_json({"state": "DASHBOARD", "payload": build_dashboard_snapshot()})
@@ -153,6 +292,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 def stop_current_activity() -> dict[str, str]:
     engine.stop_all()
     return {"state": "IDLE", "payload": "stopped"}
+
+
+@app.post("/api/emergency-stop")
+async def emergency_stop() -> dict[str, str]:
+    engine.stop_all()
+    engine.assistant_state.set_status(AssistantStatus.SLEEPING)
+    await _broadcast({"state": "EMERGENCY_STOP", "payload": "Awaryjne zatrzymanie."})
+    return {"state": "EMERGENCY_STOP", "payload": "stopped"}
 
 
 @app.post("/api/recording/stop")
@@ -194,6 +341,7 @@ def build_dashboard_snapshot() -> dict:
         "memory_review": formatuj_memory_review(engine.pamiec_stala),
         "rag_status": engine.rag_memory.status(),
         "setup_warnings": read_startup_warnings(),
+        "hud_animations_enabled": settings.jarvis_hud_animations_enabled,
     }
 
 
@@ -330,8 +478,17 @@ async def _run_awake_conversation(
 
         logger.info("Sending activated voice command to LLM. Length: %s", len(command_text))
         engine.assistant_state.set_status(AssistantStatus.ACTIVE_CONVERSATION)
-        response_text = await _stream_engine_response(websocket, command_text, utterance_end_time)
-        await _send_planned_visual_result(websocket, command_text, response_text)
+        llm_text, retrieval_result = await _prepare_llm_text(websocket, command_text)
+        if isinstance(retrieval_result, RetrievalResult):
+            response_text = await _generate_realtime_response(
+                websocket,
+                command_text,
+                llm_text,
+                retrieval_result,
+            )
+        else:
+            response_text = await _stream_engine_response(websocket, llm_text, utterance_end_time)
+            await _send_planned_visual_result(websocket, command_text, response_text)
 
         await _send_or_broadcast(
             websocket,
@@ -414,6 +571,26 @@ async def _send_ui_event(websocket: WebSocket | None, text: str) -> None:
     await _send_or_broadcast(websocket, {"state": "UI_EVENT", "payload": text})
 
 
+async def _prepare_llm_text(websocket: WebSocket | None, text: str):
+    plan = retrieval_manager.router.plan(text)
+    if not plan.needs_realtime or not settings.jarvis_enable_realtime_search:
+        return text, None
+
+    engine.assistant_state.set_status(AssistantStatus.SEARCHING)
+    await _send_or_broadcast(websocket, {"state": "SEARCHING", "payload": "Skanuje aktualne zrodla."})
+    await _send_ui_event(websocket, "classifying query")
+    result = await asyncio.to_thread(retrieval_manager.retrieve, text)
+    for operation in result.operations:
+        detail = f": {operation.detail}" if operation.detail else ""
+        await _send_ui_event(websocket, f"{operation.name.lower()}{detail}")
+    if not result.has_evidence:
+        await _send_ui_event(websocket, "insufficient evidence")
+        return build_realtime_llm_prompt(text, result), result
+
+    await _send_ui_event(websocket, f"evidence ready: {len(result.evidence)} chunks")
+    return build_realtime_llm_prompt(text, result), result
+
+
 async def _handle_visual_query(text: str, websocket: WebSocket | None = None) -> bool:
     global last_response
     decision = classify_intent(text)
@@ -453,9 +630,14 @@ async def _stream_engine_response(
     websocket: WebSocket | None,
     text: str,
     utterance_end_time: float | None,
+    speak: bool = True,
 ) -> str:
     response_text = ""
-    for event in engine.stream_response(text, utterance_end_time):
+    try:
+        events = engine.stream_response(text, utterance_end_time, speak=speak)
+    except TypeError:
+        events = engine.stream_response(text, utterance_end_time)
+    for event in events:
         message = event.as_dict()
         if message["state"] == "IDLE" and message.get("payload"):
             response_text = str(message["payload"])
@@ -463,10 +645,58 @@ async def _stream_engine_response(
     return response_text or last_response
 
 
+async def _generate_realtime_response(
+    websocket: WebSocket | None,
+    question: str,
+    prompt_text: str,
+    retrieval_result: RetrievalResult,
+) -> str:
+    global last_response
+    engine.assistant_state.set_status(AssistantStatus.THINKING)
+    await _send_or_broadcast(websocket, {"state": "THINKING", "payload": ""})
+    await _send_ui_event(websocket, "generating answer")
+
+    if retrieval_result.has_evidence:
+        raw_response = await asyncio.to_thread(
+            engine.generate_realtime_response,
+            question,
+            prompt_text,
+        )
+        jarvis_answer = parse_jarvis_answer(raw_response, retrieval_result)
+    else:
+        jarvis_answer = retrieval_result.fallback_answer()
+
+    operations = list(jarvis_answer.operations)
+    if not any(operation.get("name") == "SYNTHESIZING" for operation in operations):
+        operations.append({"name": "SYNTHESIZING", "status": "done", "duration_ms": 0})
+    if not any(operation.get("name") == "SPEAKING" for operation in operations):
+        operations.append({"name": "SPEAKING", "status": "done", "duration_ms": 0})
+    jarvis_answer = jarvis_answer.model_copy(update={"operations": operations})
+
+    payload = build_display_payload(jarvis_answer, question)
+    if retrieval_result.used_fallback:
+        payload["fallback_notice"] = "PRIMARY SEARCH DEGRADED -> FALLBACK BRAVE ENGAGED"
+
+    visual_result_history.append(payload)
+    del visual_result_history[:-8]
+    last_response = jarvis_answer.answer
+    engine.assistant_state.set_status(AssistantStatus.DISPLAYING_RESULT)
+    await _send_or_broadcast(websocket, {"state": "VISUAL_RESULT", "payload": payload})
+    await _send_or_broadcast(websocket, {"state": "IDLE", "payload": jarvis_answer.answer})
+
+    spoken_answer = jarvis_answer.spoken_answer.strip()
+    if spoken_answer:
+        engine.assistant_state.set_status(AssistantStatus.SPEAKING)
+        await _send_or_broadcast(websocket, {"state": "SPEAKING", "payload": ""})
+        await asyncio.to_thread(engine.tts_client.speak, spoken_answer, False)
+    return jarvis_answer.answer
+
+
 async def _send_planned_visual_result(
     websocket: WebSocket | None,
     question: str,
     answer: str,
+    search_bundle=None,
 ) -> bool:
     if not question or not answer:
         return False
@@ -474,7 +704,17 @@ async def _send_planned_visual_result(
     engine.assistant_state.set_status(AssistantStatus.SEARCHING)
     await _send_or_broadcast(websocket, {"state": "SEARCHING", "payload": "Buduje display wyniku."})
     await _send_ui_event(websocket, "wyszukuje kontekst w sieci")
-    payload = await asyncio.to_thread(plan_visual_result, question, answer)
+    if search_bundle is None:
+        payload = await asyncio.to_thread(plan_visual_result, question, answer)
+    else:
+        payload = await asyncio.to_thread(
+            plan_visual_result,
+            question,
+            answer,
+            None,
+            None,
+            search_bundle,
+        )
     if not payload:
         return False
 
@@ -508,6 +748,62 @@ async def _send_event(websocket: WebSocket | None, event: ConversationEvent) -> 
         if engine.tts_client.is_playing():
             message = {"state": "SPEAKING", "payload": message["payload"]}
     await _send_or_broadcast(websocket, message)
+
+
+async def _handle_graphify_command(text: str, websocket: WebSocket | None = None) -> bool:
+    normalized = (text or "").strip().lower()
+    if normalized not in {"graphify", "graphify ."} and not normalized.startswith("graphify "):
+        return False
+    target = text.strip().split(maxsplit=1)[1] if len(text.strip().split(maxsplit=1)) > 1 else "."
+    engine.assistant_state.set_status(AssistantStatus.SEARCHING)
+    await _send_or_broadcast(websocket, {"state": "GRAPHING", "payload": f"Graphify scanning {target}"})
+    await _send_ui_event(websocket, "graphify scan")
+    payload = await _build_graphify_payload(target)
+    visual_result_history.append(payload)
+    del visual_result_history[:-8]
+    engine.assistant_state.set_status(AssistantStatus.DISPLAYING_RESULT)
+    state = "GRAPH_READY" if payload.get("ok", True) else "ERROR"
+    await _send_or_broadcast(websocket, {"state": state, "payload": payload})
+    return True
+
+
+async def _build_graphify_payload(target: str) -> dict:
+    try:
+        result = await asyncio.to_thread(
+            build_local_graph,
+            _resolve_graphify_target(target),
+            PROJECT_ROOT / "graphify-out" / "local_graph.json",
+        )
+    except GraphifyParseError as error:
+        return {
+            "type": "visual_result",
+            "mode": "graph",
+            "presentation": "animated_scene",
+            "animation_profile": "low_confidence",
+            "ok": False,
+            "title": "GraphifyParseError",
+            "summary": str(error),
+            "message": str(error),
+            "nodes": [],
+            "edges": [],
+            "error": "GraphifyParseError",
+            "sources": [target],
+            "cost": {"operation": "graphify", "estimated_cost_usd": 0.0},
+        }
+    payload = dict(result.graph)
+    payload["output_path"] = str(result.output_path)
+    return payload
+
+
+def _resolve_graphify_target(target: str):
+    raw = (target or ".").strip().strip('"')
+    path = (PROJECT_ROOT / raw).resolve() if not os.path.isabs(raw) else Path(raw).resolve()
+    root = PROJECT_ROOT.resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as error:
+        raise GraphifyParseError("Graphify target must stay inside the project directory.") from error
+    return path
 
 
 async def _settle_after_response(

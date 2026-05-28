@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 DEFAULT_TTS_VOICE = "onyx"
 API_KEY_PLACEHOLDER_MARKERS = (
     "tu_wklej",
@@ -114,6 +115,32 @@ def _normalize_secret(value: str | None) -> str | None:
     return normalized or None
 
 
+def openai_api_key_diagnostics(settings: "Settings | None" = None) -> dict[str, str | int | bool]:
+    import hashlib
+
+    active_settings = settings or load_settings()
+    value = active_settings.openai_api_key or ""
+    return {
+        "present": bool(value),
+        "length": len(value),
+        "prefix": value[:7] if value else "",
+        "suffix": value[-4:] if len(value) >= 4 else value,
+        "sha8": hashlib.sha256(value.encode("utf-8")).hexdigest()[:8] if value else "",
+    }
+
+
+def format_openai_api_key_diagnostics(settings: "Settings | None" = None) -> str:
+    diagnostics = openai_api_key_diagnostics(settings)
+    status = "present" if diagnostics["present"] else "missing"
+    return (
+        "OPENAI_API_KEY: "
+        f"{status}; length={diagnostics['length']}; "
+        f"prefix={diagnostics['prefix'] or '-'}; "
+        f"suffix={diagnostics['suffix'] or '-'}; "
+        f"sha8={diagnostics['sha8'] or '-'}"
+    )
+
+
 def _looks_like_placeholder_api_key(value: str) -> bool:
     normalized = value.strip().lower()
     if len(normalized) < 20:
@@ -130,6 +157,15 @@ class Settings:
     stt_model: str
     tts_model: str
     tts_voice: str
+    voice_provider: str
+    elevenlabs_api_key: str | None
+    elevenlabs_tts_enabled: bool
+    elevenlabs_stt_enabled: bool
+    elevenlabs_tts_model: str
+    elevenlabs_stt_model: str
+    elevenlabs_voice_id: str
+    elevenlabs_output_format: str
+    elevenlabs_timeout_seconds: float
     embedding_model: str
     system_prompt: str
     input_mode: str
@@ -191,6 +227,38 @@ class Settings:
     chunk_ms: int
     avg_rtt_ms: int
     tokens_per_s: int
+    web_search_enabled: bool
+    web_search_provider: str
+    web_search_api_key: str | None
+    web_search_timeout: float
+    web_search_result_limit: int
+    web_search_freshness_days: int
+    web_search_cache_enabled: bool
+    web_search_cache_path: Path
+    web_search_cache_ttl_seconds: int
+    tavily_api_key: str | None
+    brave_search_api_key: str | None
+    jarvis_primary_search: str
+    jarvis_fallback_search: str
+    jarvis_enable_realtime_search: bool
+    jarvis_enable_brave_fallback: bool
+    strict_retrieval: bool
+    retrieval_trace_path: Path
+    jarvis_cache_dir: Path
+    jarvis_timezone: str
+    jarvis_search_max_results: int
+    jarvis_search_timeout_seconds: float
+    jarvis_fetch_timeout_seconds: float
+    jarvis_rerank_top_k: int
+    jarvis_hud_animations_enabled: bool
+    llm_validator_enabled: bool
+    llm_validator_model: str
+    llm_validator_max_sources: int
+    llm_validator_min_confidence: float
+    llm_validator_validate_images: bool
+    llm_validator_validate_reports: bool
+    llm_validator_validate_videos: bool
+    research_trace_path: Path
 
 
 DEFAULT_SYSTEM_PROMPT = """
@@ -211,7 +279,7 @@ bo obecny zakres projektu obejmuje tylko mozg, rozmowe, pamiec i glos.
 
 @lru_cache(maxsize=1)
 def load_settings() -> Settings:
-    load_dotenv(PROJECT_ROOT / ".env", override=True)
+    load_dotenv(ENV_FILE_PATH, override=True, encoding="utf-8-sig")
 
     input_mode = os.getenv("JARVIS_RUNTIME_INPUT_MODE") or os.getenv("INPUT_MODE", "text")
     input_mode = input_mode.strip().lower()
@@ -225,6 +293,15 @@ def load_settings() -> Settings:
         stt_model=os.getenv("STT_MODEL", "whisper-1"),
         tts_model=os.getenv("TTS_MODEL", "gpt-4o-mini-tts"),
         tts_voice=_voice_from_env("TTS_VOICE", DEFAULT_TTS_VOICE),
+        voice_provider=os.getenv("VOICE_PROVIDER", "openai").strip().lower(),
+        elevenlabs_api_key=_normalize_secret(os.getenv("ELEVENLABS_API_KEY")),
+        elevenlabs_tts_enabled=_bool_from_env("ELEVENLABS_TTS_ENABLED", False),
+        elevenlabs_stt_enabled=_bool_from_env("ELEVENLABS_STT_ENABLED", False),
+        elevenlabs_tts_model=os.getenv("ELEVENLABS_TTS_MODEL", "eleven_multilingual_v2"),
+        elevenlabs_stt_model=os.getenv("ELEVENLABS_STT_MODEL", "scribe_v2"),
+        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb"),
+        elevenlabs_output_format=os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128"),
+        elevenlabs_timeout_seconds=_float_from_env("ELEVENLABS_TIMEOUT_SECONDS", 20.0),
         embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         system_prompt=os.getenv("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT),
         input_mode=input_mode,
@@ -319,6 +396,38 @@ def load_settings() -> Settings:
         chunk_ms=_int_from_env("CHUNK_MS", 450),
         avg_rtt_ms=_int_from_env("AVG_RTT_MS", 900),
         tokens_per_s=_int_from_env("TOKENS_PER_S", 40),
+        web_search_enabled=_bool_from_env("WEB_SEARCH_ENABLED", True),
+        web_search_provider=os.getenv("WEB_SEARCH_PROVIDER", "duckduckgo").strip().lower(),
+        web_search_api_key=_normalize_secret(os.getenv("WEB_SEARCH_API_KEY")),
+        web_search_timeout=_float_from_env("WEB_SEARCH_TIMEOUT", 5.0),
+        web_search_result_limit=_int_from_env("WEB_SEARCH_RESULT_LIMIT", 8),
+        web_search_freshness_days=_int_from_env("WEB_SEARCH_FRESHNESS_DAYS", 7),
+        web_search_cache_enabled=_bool_from_env("WEB_SEARCH_CACHE_ENABLED", True),
+        web_search_cache_path=_path_from_env("WEB_SEARCH_CACHE_PATH", "data/search_cache.json"),
+        web_search_cache_ttl_seconds=_int_from_env("WEB_SEARCH_CACHE_TTL_SECONDS", 900),
+        tavily_api_key=_normalize_secret(os.getenv("TAVILY_API_KEY")),
+        brave_search_api_key=_normalize_secret(os.getenv("BRAVE_SEARCH_API_KEY")),
+        jarvis_primary_search=os.getenv("JARVIS_PRIMARY_SEARCH", "tavily").strip().lower(),
+        jarvis_fallback_search=os.getenv("JARVIS_FALLBACK_SEARCH", "brave").strip().lower(),
+        jarvis_enable_realtime_search=_bool_from_env("JARVIS_ENABLE_REALTIME_SEARCH", True),
+        jarvis_enable_brave_fallback=_bool_from_env("JARVIS_ENABLE_BRAVE_FALLBACK", False),
+        strict_retrieval=_bool_from_env("STRICT_RETRIEVAL", True),
+        retrieval_trace_path=_path_from_env("RETRIEVAL_TRACE_PATH", "data/retrieval_traces.jsonl"),
+        jarvis_cache_dir=_path_from_env("JARVIS_CACHE_DIR", ".cache/jarvis"),
+        jarvis_timezone=os.getenv("JARVIS_TIMEZONE", "Europe/Warsaw").strip(),
+        jarvis_search_max_results=_int_from_env("JARVIS_SEARCH_MAX_RESULTS", 6),
+        jarvis_search_timeout_seconds=_float_from_env("JARVIS_SEARCH_TIMEOUT_SECONDS", 15.0),
+        jarvis_fetch_timeout_seconds=_float_from_env("JARVIS_FETCH_TIMEOUT_SECONDS", 20.0),
+        jarvis_rerank_top_k=_int_from_env("JARVIS_RERANK_TOP_K", 5),
+        jarvis_hud_animations_enabled=_bool_from_env("JARVIS_HUD_ANIMATIONS_ENABLED", True),
+        llm_validator_enabled=_bool_from_env("LLM_VALIDATOR_ENABLED", False),
+        llm_validator_model=os.getenv("LLM_VALIDATOR_MODEL", "gpt-4.1-mini"),
+        llm_validator_max_sources=_int_from_env("LLM_VALIDATOR_MAX_SOURCES", 6),
+        llm_validator_min_confidence=_float_from_env("LLM_VALIDATOR_MIN_CONFIDENCE", 0.72),
+        llm_validator_validate_images=_bool_from_env("LLM_VALIDATOR_VALIDATE_IMAGES", True),
+        llm_validator_validate_reports=_bool_from_env("LLM_VALIDATOR_VALIDATE_REPORTS", True),
+        llm_validator_validate_videos=_bool_from_env("LLM_VALIDATOR_VALIDATE_VIDEOS", True),
+        research_trace_path=_path_from_env("RESEARCH_TRACE_PATH", "data/research_traces.json"),
     )
 
 

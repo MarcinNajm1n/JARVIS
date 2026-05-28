@@ -10,7 +10,7 @@
       integrity="sha256-p4NxAoJBhIINfQPDIfaRXPf0+qb+pW1QBCDXI1tINYs="
       crossorigin=""
     />
-    <link rel="stylesheet" href="./styles.css?v=17" />
+    <link rel="stylesheet" href="./styles.css?v=23" />
   </head>
   <body>
     <div class="top-cost-meter" aria-label="Koszt i tokeny API">
@@ -78,6 +78,10 @@
             <p id="resultCost"></p>
           </div>
           <ol class="event-queue" id="eventQueue"></ol>
+          <div class="hud-operation-timeline" id="operationTimeline" aria-label="Operation timeline"></div>
+          <div class="hud-evidence-stream" id="evidenceStream" aria-label="Evidence stream"></div>
+          <div class="hud-source-cards" id="sourceCards" aria-label="Source cards"></div>
+          <div class="hud-answer-crawl" id="answerCrawl" aria-label="Answer crawl"></div>
           <div class="result-history" id="resultHistory" aria-label="Historia wynikow"></div>
         </section>
       </section>
@@ -131,11 +135,15 @@
         </div>
       </section>
     </main>
+    <section class="visual-stage" id="visualStage" aria-label="Pelnoekranowy display JARVIS" hidden>
+      <button class="visual-close" id="visualCloseButton" type="button" title="Zamknij display">ESC</button>
+      <div class="visual-core" aria-hidden="true">JARVIS</div>
+    </section>
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
-    <script src="./app.js?v=17"></script>
+    <script src="./app.js?v=23"></script>
   </body>
 </html>

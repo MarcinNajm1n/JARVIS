@@ -8,7 +8,9 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, Any
 
+from src.research_orchestrator import build_research_brief
 from src.web_search import WebSearchBundle, search_web
+from src.search_service import validate_search_results
 from src.weather_service import is_weather_query
 
 
@@ -37,6 +39,9 @@ FACTUAL_QUESTION_HINTS = (
 SUBJECT_TOKEN_RE = re.compile(r"\b[^\W\d_][\w'-]*(?:\s+[^\W\d_][\w'-]*){0,3}\b", re.UNICODE)
 
 STOP_SUBJECT_WORDS = {
+    "nie",
+    "brak",
+    "niestety",
     "jest",
     "sa",
     "byl",
@@ -56,9 +61,15 @@ STOP_SUBJECT_WORDS = {
     "aktualnie",
     "forbesa",
     "forbes",
+    "według",
+    "źródeł",
+    "zrodel",
 }
 
 SUBJECT_LEADING_WORDS = {
+    "nie",
+    "brak",
+    "niestety",
     "wedlug",
     "obecnie",
     "najprawdopodobniej",
@@ -70,6 +81,43 @@ SUBJECT_LEADING_WORDS = {
     "forbes",
     "forbesa",
 }
+
+UNCERTAIN_ANSWER_HINTS = (
+    "nie mam wystarczajaco pewnych aktualnych danych",
+    "nie mam wystarczajaco pewnych danych",
+    "brak pewnych zrodel",
+    "brak zweryfikowanych zrodel",
+    "nie moge jednoznacznie okreslic",
+    "nie jestem w stanie jednoznacznie okreslic",
+)
+
+STRUCTURED_MODAL_HINTS = (
+    "rachunek",
+    "rachunki",
+    "faktura",
+    "faktury",
+    "koszt",
+    "koszty",
+    "budzet",
+    "budzety",
+    "oplata",
+    "oplaty",
+    "czynsz",
+    "abonament",
+    "paragon",
+    "wydatki",
+    "wydatek",
+)
+
+AMOUNT_WITH_CURRENCY_RE = re.compile(
+    r"(?P<amount>\d+(?:[ .]\d{3})*(?:[,.]\d{1,2})?)\s*(?P<currency>pln|z(?:l|ł)|eur|usd|gbp)\b",
+    re.IGNORECASE,
+)
+
+DUE_DATE_RE = re.compile(
+    r"(?:termin|platne|płatne|do)\s*:?\s*(?P<due>\d{1,2}[.-]\d{1,2}(?:[.-]\d{2,4})?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -89,6 +137,8 @@ class EntityProfile:
         return {
             "type": "visual_result",
             "mode": "entity_profile",
+            "presentation": "animated_scene",
+            "animation_profile": "result" if self.ok else "low_confidence",
             "ok": self.ok,
             "title": self.title,
             "subject": self.title,
@@ -112,6 +162,7 @@ def plan_visual_result(
     answer: str,
     lookup: ProfileLookup | None = None,
     web_search: WebSearch | None = None,
+    search_bundle: WebSearchBundle | None = None,
 ) -> dict[str, Any] | None:
     """Return a generic visual display plan for factual answers.
 
@@ -125,8 +176,25 @@ def plan_visual_result(
         return None
     if is_weather_query(question):
         return None
+    if _looks_structured_modal_query(question, answer):
+        return _structured_modal_payload(question, answer)
+    if _is_uncertain_answer(answer):
+        return None
     if not _looks_factual(question, answer):
         return None
+
+    if search_bundle is not None and search_bundle.results:
+        research_provider = None
+        if web_search is not None:
+            research_provider = lambda query, _timeout, _limit: web_search(query)
+        research_payload = build_research_brief(
+            question,
+            answer,
+            search_bundle=search_bundle,
+            search_provider=research_provider,
+        )
+        if research_payload is not None:
+            return research_payload
 
     subject, trace = _select_visual_subject(question, answer)
     search_fn = web_search or search_web
@@ -143,9 +211,11 @@ def plan_visual_result(
         blocked_mismatch = True
         profile = None
 
-    web_results = WebSearchBundle(query=subject)
+    web_results = search_bundle or WebSearchBundle(query=subject)
     if profile is None or profile.ok is False:
-        web_results = _filter_search_results(search_fn(subject), subject)
+        if not web_results.results:
+            web_results = search_fn(subject)
+        web_results = _filter_search_results(web_results, subject)
         trace["search_query"] = web_results.query or subject
         if web_results.best:
             profile = _profile_from_web_results(subject, answer, web_results)
@@ -173,10 +243,20 @@ def plan_visual_result(
     payload["query"] = question
     trace["validation"] = trace.get("validation") or "subject_confirmed"
     payload["planner_trace"] = trace
+    payload["related_results"] = _merge_related_results(
+        payload.get("related_results") or [],
+        web_results.as_payload_results(),
+    )
+    payload["media_items"] = _media_items_from_payload(payload)
+    payload["validation"] = validate_search_results(question, answer, web_results).as_dict()
+    if len(payload["media_items"]) > 1:
+        payload["mode"] = "entity_gallery"
     return payload
 
 
 def extract_visual_subject(question: str, answer: str) -> str | None:
+    if _is_uncertain_answer(answer):
+        return None
     subject, _trace = _select_visual_subject(question, answer)
     if subject:
         return subject
@@ -280,12 +360,55 @@ def _profile_from_web_results(
     )
 
 
+def _merge_related_results(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged = []
+    seen = set()
+    for item in [*left, *right]:
+        key = (str(item.get("title") or "").lower(), str(item.get("url") or "").lower())
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged[:6]
+
+
+def _media_items_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    media_items = []
+    seen_images = set()
+    if payload.get("image_url"):
+        seen_images.add(payload["image_url"])
+        media_items.append(
+            {
+                "image_url": payload["image_url"],
+                "caption": payload.get("title") or payload.get("subject") or "Wynik",
+                "source_url": (payload.get("sources") or [None])[0],
+            }
+        )
+    for item in payload.get("related_results") or []:
+        image_url = item.get("image_url")
+        if not image_url or image_url in seen_images:
+            continue
+        seen_images.add(image_url)
+        media_items.append(
+            {
+                "image_url": image_url,
+                "caption": item.get("title") or "Wynik",
+                "source_url": item.get("url"),
+            }
+        )
+        if len(media_items) >= 4:
+            break
+    return media_items
+
+
 def _uncertain_visual_payload(question: str, answer: str, trace: dict[str, Any]) -> dict[str, Any]:
     subject = trace.get("selected_subject") or "niepewny temat"
     reason = trace.get("validation") or "subject_mismatch"
     return {
         "type": "visual_result",
         "mode": "generic",
+        "presentation": "animated_scene",
+        "animation_profile": "low_confidence",
         "ok": False,
         "title": "Brak pewnego displaya",
         "subject": subject,
@@ -301,6 +424,118 @@ def _uncertain_visual_payload(question: str, answer: str, trace: dict[str, Any])
         "error": reason,
         "planner_trace": trace,
     }
+
+
+def _looks_structured_modal_query(question: str, answer: str) -> bool:
+    normalized = _normalize(f"{question} {answer}")
+    return any(hint in normalized for hint in STRUCTURED_MODAL_HINTS)
+
+
+def _structured_modal_payload(question: str, answer: str) -> dict[str, Any]:
+    rows, detected_currency = _extract_structured_rows(answer)
+    total = _extract_total(answer)
+    if total is None and rows:
+        total = round(sum(row["numeric_amount"] for row in rows), 2)
+    public_rows = [
+        {
+            "item": row["item"],
+            "amount": row["amount"],
+            "due": row["due"],
+        }
+        for row in rows
+    ]
+    ok = not _is_uncertain_answer(answer)
+    return {
+        "type": "visual_result",
+        "mode": "structured_table",
+        "presentation": "structured_modal",
+        "animation_profile": "low_confidence" if not ok else "result",
+        "ok": ok,
+        "title": "Rachunki i koszty",
+        "subject": "rachunki",
+        "summary": _compact(answer, 360),
+        "message": _compact(answer, 360),
+        "structured_data": {
+            "title": "Rachunki",
+            "columns": ["Pozycja", "Kwota", "Termin"],
+            "rows": public_rows,
+            "total": total,
+            "currency": detected_currency or "PLN",
+            "notes": _compact(answer, 360),
+        },
+        "sources": ["JARVIS answer"],
+        "cost": {"operation": "visual_planner", "estimated_cost_usd": 0.0},
+        "query": question,
+    }
+
+
+def _extract_structured_rows(answer: str) -> tuple[list[dict[str, Any]], str | None]:
+    rows: list[dict[str, Any]] = []
+    detected_currency: str | None = None
+    for line in re.split(r"[\n;]+", answer or ""):
+        clean_line = re.sub(r"^\s*[-*•\d.)]+\s*", "", line).strip()
+        if not clean_line:
+            continue
+        if any(label in _normalize(clean_line) for label in ("razem", "suma", "lacznie", "total")):
+            continue
+        match = AMOUNT_WITH_CURRENCY_RE.search(clean_line)
+        if not match:
+            continue
+        amount = _parse_amount(match.group("amount"))
+        currency = _normalize_currency(match.group("currency"))
+        detected_currency = detected_currency or currency
+        item = clean_line[: match.start()].strip(" :-") or f"Pozycja {len(rows) + 1}"
+        rows.append(
+            {
+                "item": _compact(item, 90),
+                "amount": _format_amount(amount, currency),
+                "numeric_amount": amount,
+                "due": _extract_due_date(clean_line),
+            }
+        )
+    return rows[:12], detected_currency
+
+
+def _extract_total(answer: str) -> float | None:
+    for line in re.split(r"[\n;]+", answer or ""):
+        normalized = _normalize(line)
+        if not any(label in normalized for label in ("razem", "suma", "lacznie", "total")):
+            continue
+        match = AMOUNT_WITH_CURRENCY_RE.search(line)
+        if match:
+            return _parse_amount(match.group("amount"))
+    return None
+
+
+def _extract_due_date(text: str) -> str:
+    match = DUE_DATE_RE.search(text or "")
+    return match.group("due") if match else ""
+
+
+def _parse_amount(value: str) -> float:
+    normalized = (value or "0").replace(" ", "")
+    if "," in normalized and "." in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    elif "," in normalized:
+        normalized = normalized.replace(",", ".")
+    elif normalized.count(".") == 1 and len(normalized.rsplit(".", 1)[1]) == 3:
+        normalized = normalized.replace(".", "")
+    try:
+        return float(normalized)
+    except ValueError:
+        return 0.0
+
+
+def _format_amount(value: float, currency: str) -> str:
+    display = str(int(value)) if float(value).is_integer() else f"{value:.2f}"
+    return f"{display} {currency}"
+
+
+def _normalize_currency(value: str) -> str:
+    normalized = _normalize(value)
+    if normalized in {"zl", "pln"}:
+        return "PLN"
+    return normalized.upper() or "PLN"
 
 
 def _filter_search_results(web_results: WebSearchBundle, subject: str) -> WebSearchBundle:
@@ -354,6 +589,8 @@ def _extract_subject_candidates_from_answer(answer: str) -> list[dict[str, Any]]
         candidate = _clean_subject(" ".join(candidate_words))
         if not candidate or candidate.lower() in STOP_SUBJECT_WORDS:
             continue
+        if len(candidate.split()) == 1 and _normalize(candidate) in STOP_SUBJECT_WORDS:
+            continue
         if not _looks_like_named_entity(candidate):
             continue
         score = _score_subject_candidate(candidate, index)
@@ -385,7 +622,7 @@ def _score_subject_candidate(candidate: str, index: int) -> float:
     if len(words) >= 2:
         score += 3
     if len(words) == 1:
-        score -= 1
+        score -= 4
     if index <= 6:
         score += 1
     if words and words[0].lower() in SUBJECT_LEADING_WORDS:
@@ -395,7 +632,11 @@ def _score_subject_candidate(candidate: str, index: int) -> float:
 
 def _looks_like_named_entity(text: str) -> bool:
     words = (text or "").split()
-    return bool(words) and all(word[:1].isupper() for word in words[:2])
+    if not words:
+        return False
+    if len(words) == 1 and _normalize(words[0]) in STOP_SUBJECT_WORDS:
+        return False
+    return all(word[:1].isupper() for word in words[:2])
 
 
 def _profile_matches_subject(profile: EntityProfile, subject: str) -> bool:
@@ -439,6 +680,11 @@ def _clean_subject(subject: str) -> str | None:
     if not words:
         return None
     return " ".join(words[:5]).strip()
+
+
+def _is_uncertain_answer(answer: str) -> bool:
+    normalized = _normalize(answer)
+    return any(hint in normalized for hint in UNCERTAIN_ANSWER_HINTS)
 
 
 def _normalize(text: str) -> str:

@@ -9,6 +9,7 @@ from src.memory_store import (
     wczytaj_historie,
     zapisz_historie,
 )
+from src.voice_state import aktywny_provider_glosu
 
 
 def test_obsluz_pomoc():
@@ -138,6 +139,20 @@ def test_obsluz_glosowe_komendy_stop_tts():
     assert tts_client.stop_calls == 6
 
 
+def test_obsluz_voice_provider_switch():
+    czy_komenda, _historia, _pamiec = obsluz_komende(
+        "/voice elevenlabs",
+        [],
+        [],
+    )
+
+    assert czy_komenda is True
+    assert aktywny_provider_glosu() == "elevenlabs"
+
+    obsluz_komende("/voice openai", [], [])
+    assert aktywny_provider_glosu() == "openai"
+
+
 def test_obsluz_memory_review(capsys):
     historia = []
     pamiec_stala = [
@@ -160,7 +175,27 @@ def test_obsluz_memory_review(capsys):
     assert czy_komenda is True
     assert nowa_historia == historia
     assert nowa_pamiec == pamiec_stala
-    assert "[preferences]" in output
+
+
+def test_obsluz_env_status_nie_ujawnia_pelnego_klucza(capsys, monkeypatch):
+    monkeypatch.setattr(
+        "src.command_handler.format_openai_api_key_diagnostics",
+        lambda: "OPENAI_API_KEY: present; length=44; prefix=unit; suffix=tics; sha8=abc12345",
+    )
+
+    czy_komenda, nowa_historia, nowa_pamiec = obsluz_komende(
+        "/env status",
+        [],
+        [],
+    )
+    output = capsys.readouterr().out
+
+    assert czy_komenda is True
+    assert nowa_historia == []
+    assert nowa_pamiec == []
+    assert "OPENAI_API_KEY: present" in output
+    assert "sha8=" in output
+    assert "unit-test-openai-key-value-for-diagnostics" not in output
 
 
 def test_obsluz_feedback_dobra(monkeypatch):

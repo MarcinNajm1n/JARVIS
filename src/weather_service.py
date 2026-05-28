@@ -67,6 +67,8 @@ class WeatherResult:
         return {
             "type": "visual_result",
             "mode": "map_weather",
+            "presentation": "animated_scene",
+            "animation_profile": "result" if self.ok else "low_confidence",
             "ok": self.ok,
             "location": self.location,
             "lat": self.lat,

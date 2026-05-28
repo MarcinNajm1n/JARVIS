@@ -1,7 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from src import web_app
+from src.graphify_cli import GraphifyParseError
+from src.retrieval.models import EvidenceChunk, QueryPlan, RetrievalResult, SearchMode
 from src.weather_service import WeatherResult
 
 
@@ -190,6 +194,23 @@ def test_web_weather_brak_danych_pokazuje_komunikat(monkeypatch):
     assert fake_engine.stream_calls == []
 
 
+def test_emergency_stop_zatrzymuje_silnik_i_broadcastuje_event(monkeypatch):
+    fake_engine = _FakeEngine(wake_text="")
+    websocket = _FakeWebSocket()
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "connected_websockets", {websocket})
+        response = await web_app.emergency_stop()
+        assert response["state"] == "EMERGENCY_STOP"
+
+    asyncio.run(scenario())
+
+    assert fake_engine.stop_all_calls == 1
+    assert fake_engine.assistant_state.get_status() == "sleeping"
+    assert any(message["state"] == "EMERGENCY_STOP" for message in websocket.messages)
+
+
 def test_web_visual_planner_wysyla_entity_profile_dla_pytania_faktograficznego(monkeypatch):
     fake_engine = _FakeEngine(wake_text="")
     websocket = _FakeWebSocket()
@@ -226,6 +247,38 @@ def test_web_visual_planner_wysyla_entity_profile_dla_pytania_faktograficznego(m
     assert visual_messages[0]["payload"]["subject"] == "Elon Musk"
 
 
+def test_web_graphify_command_wysyla_graph_ready(monkeypatch, tmp_path):
+    fake_engine = _FakeEngine(wake_text="")
+    websocket = _FakeWebSocket()
+    (tmp_path / "A.md").write_text("[B](B.md)", encoding="utf-8")
+    (tmp_path / "B.md").write_text("# B", encoding="utf-8")
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        monkeypatch.setattr(web_app, "PROJECT_ROOT", tmp_path)
+        handled = await web_app._handle_graphify_command("graphify .", websocket)
+        assert handled is True
+
+    asyncio.run(scenario())
+
+    graph_messages = [message for message in websocket.messages if message["state"] == "GRAPH_READY"]
+    assert graph_messages
+    assert graph_messages[0]["payload"]["mode"] == "graph"
+    assert graph_messages[0]["payload"]["nodes"]
+    assert graph_messages[0]["payload"]["edges"]
+
+
+def test_web_graphify_target_musi_zostac_w_katalogu_projektu(monkeypatch, tmp_path):
+    project_root = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project_root.mkdir()
+    outside.mkdir()
+    monkeypatch.setattr(web_app, "PROJECT_ROOT", project_root)
+
+    with pytest.raises(GraphifyParseError):
+        web_app._resolve_graphify_target(str(outside))
+
+
 def test_web_wake_gate_jarvis_stop_przerywa_tts_bez_frazy_aktywacji(monkeypatch):
     fake_engine = _FakeEngine(wake_text="jarvis stop")
     websocket = _FakeWebSocket()
@@ -240,6 +293,50 @@ def test_web_wake_gate_jarvis_stop_przerywa_tts_bez_frazy_aktywacji(monkeypatch)
     assert fake_engine.stop_audio_calls == 1
     assert fake_engine.listen_for_command_calls == 0
     assert fake_engine.stream_calls == []
+
+
+def test_web_realtime_generuje_hud_i_tts_czyta_tylko_spoken_answer(monkeypatch):
+    fake_engine = _FakeEngine(wake_text="")
+    websocket = _FakeWebSocket()
+    result = RetrievalResult(
+        question="co najnowszego wiadomo o OpenAI?",
+        checked_at="2026-05-21T12:00:00+02:00",
+        plan=QueryPlan(
+            original_question="co najnowszego wiadomo o OpenAI?",
+            needs_realtime=True,
+            mode=SearchMode.NEWS,
+            search_queries=["OpenAI news"],
+            preferred_sources=[],
+            reason="test",
+        ),
+        evidence=[
+            EvidenceChunk(
+                source_url="https://openai.com/news",
+                source_title="OpenAI news",
+                text="OpenAI opublikowalo aktualne informacje.",
+                relevance_score=0.9,
+                trust_score=0.86,
+            )
+        ],
+        operations=[{"name": "SEARCHING_TAVILY", "status": "done", "duration_ms": 20}],
+    )
+
+    async def scenario():
+        monkeypatch.setattr(web_app, "engine", fake_engine)
+        await web_app._generate_realtime_response(
+            websocket,
+            "co najnowszego wiadomo o OpenAI?",
+            "prompt",
+            result,
+        )
+
+    asyncio.run(scenario())
+
+    visual_messages = [message for message in websocket.messages if message["state"] == "VISUAL_RESULT"]
+    assert visual_messages
+    assert visual_messages[0]["payload"]["mode"] == "jarvis_tactical_hud"
+    assert fake_engine.tts_client.speak_calls[-1][0] == "Krotko do TTS."
+    assert "https://" not in fake_engine.tts_client.speak_calls[-1][0]
 
 
 def test_web_wake_gate_jarvis_wylacz_sie_wysyla_shutdown(monkeypatch):
@@ -403,6 +500,18 @@ class _FakeEngine:
                 "state": "IDLE",
                 "payload": "Komenda przetworzona.",
             }
+        )
+
+    def generate_realtime_response(self, original_user_text, prompt_text):
+        return (
+            '{"answer":"Pelna odpowiedz z linkiem https://openai.com/news",'
+            '"spoken_answer":"Krotko do TTS.",'
+            '"confidence":"high",'
+            '"display_type":"jarvis_tactical_hud",'
+            '"checked_at":"2026-05-21T12:00:00+02:00",'
+            '"sources":[{"title":"OpenAI news","url":"https://openai.com/news","summary":"news"}],'
+            '"operations":[],'
+            '"visual_assets":[]}'
         )
 
     def get_memory_candidate(self, text):

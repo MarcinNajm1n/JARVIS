@@ -25,6 +25,8 @@ def test_weather_result_formatuje_visual_payload():
 
     assert payload["type"] == "visual_result"
     assert payload["mode"] == "map_weather"
+    assert payload["presentation"] == "animated_scene"
+    assert payload["animation_profile"] == "result"
     assert payload["location"] == "Berlin"
     assert payload["weather"]["temperature"] == 18
     assert payload["cost"]["estimated_cost_usd"] == 0.0
@@ -37,4 +39,5 @@ def test_weather_result_brak_danych_mowi_nie_mam_aktualnych_danych():
     payload = result.to_visual_payload()
 
     assert payload["ok"] is False
+    assert payload["animation_profile"] == "low_confidence"
     assert "Nie mam aktualnych danych pogodowych" in payload["message"]

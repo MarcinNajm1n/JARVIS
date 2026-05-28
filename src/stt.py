@@ -11,8 +11,10 @@ from pathlib import Path
 from openai import OpenAI, OpenAIError
 
 from src.config import Settings, load_settings, require_openai_api_key
+from src.elevenlabs_client import ElevenLabsVoiceClient
 from src.logger import get_logger
 from src.voice_commands import is_activation_command
+from src.voice_state import aktywny_provider_glosu
 
 
 COMMON_SILENCE_HALLUCINATIONS = {
@@ -74,6 +76,7 @@ class SpeechToTextClient:
     def __post_init__(self) -> None:
         self.settings = self.settings or load_settings()
         self._client: OpenAI | None = None
+        self._elevenlabs_client: ElevenLabsVoiceClient | None = None
         self._logger = get_logger(__name__)
         self._stop_recording = threading.Event()
 
@@ -83,6 +86,12 @@ class SpeechToTextClient:
             api_key = require_openai_api_key(self.settings)
             self._client = OpenAI(api_key=api_key)
         return self._client
+
+    @property
+    def elevenlabs_client(self) -> ElevenLabsVoiceClient:
+        if self._elevenlabs_client is None:
+            self._elevenlabs_client = ElevenLabsVoiceClient(self.settings)
+        return self._elevenlabs_client
 
     def record_microphone(
         self,
@@ -207,6 +216,15 @@ class SpeechToTextClient:
         if not audio_path.exists():
             self._logger.warning("Audio file does not exist: %s", audio_path)
             return None
+
+        if (
+            aktywny_provider_glosu() == "elevenlabs"
+            and self.settings.elevenlabs_stt_enabled
+        ):
+            text = self.elevenlabs_client.transcribe_audio(audio_path)
+            if text and not self._looks_like_silence_hallucination(text):
+                return text
+            self._logger.warning("ElevenLabs STT unavailable or empty; falling back to OpenAI STT.")
 
         try:
             with audio_path.open("rb") as audio_file:

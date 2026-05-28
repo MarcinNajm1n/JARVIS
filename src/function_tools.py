@@ -586,16 +586,41 @@ def _log_tool_call(
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "tool": name,
             "risk": risk,
-            "arguments": _redact_arguments(arguments),
+            "arguments": _redact_sensitive(arguments),
             "status": status,
-            "result": result,
+            "result": _redact_sensitive(result),
         }
     )
     write_json(path, entries[-200:])
 
 
-def _redact_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    redacted = dict(arguments)
-    if "confirmation" in redacted:
-        redacted["confirmation"] = "***"
-    return redacted
+def _redact_sensitive(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, nested_value in value.items():
+            if _is_sensitive_key(str(key)):
+                redacted[key] = "***"
+            else:
+                redacted[key] = _redact_sensitive(nested_value)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.lower()
+    sensitive_markers = (
+        "api_key",
+        "apikey",
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "pwd",
+        "credential",
+        "authorization",
+        "cookie",
+        "confirmation",
+    )
+    return any(marker in normalized for marker in sensitive_markers)

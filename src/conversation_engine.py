@@ -182,7 +182,6 @@ class ConversationEngine:
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
         self._logger.info("Sending command to LLM. Source: generate_response; length: %s", len(user_text))
-        self._logger.info("OpenAI payload preview: %s", user_text[:240])
         response = self.llm_client.generate_response(
             history=self.historia,
             long_term_memory=self.pamiec_stala,
@@ -208,10 +207,50 @@ class ConversationEngine:
 
         return response
 
+    def generate_realtime_response(self, original_user_text: str, prompt_text: str) -> str:
+        original_user_text = original_user_text.strip()
+        prompt_text = prompt_text.strip()
+        if not original_user_text or not prompt_text:
+            return ""
+
+        self._maybe_auto_memory(original_user_text)
+        self._remember_turn("user", original_user_text)
+        self.historia.append({"role": "user", "content": original_user_text})
+        self.assistant_state.set_status(AssistantStatus.THINKING)
+        self._logger.info(
+            "Sending realtime retrieval prompt to LLM. original_length=%s prompt_length=%s",
+            len(original_user_text),
+            len(prompt_text),
+        )
+        prompt_history = [
+            *self.historia[:-1],
+            {"role": "user", "content": prompt_text},
+        ]
+        response = self.llm_client.generate_response(
+            history=prompt_history,
+            long_term_memory=self.pamiec_stala,
+            rag_context=None,
+            user_profile=self.profile_store.format_for_prompt(),
+            response_mode_instruction=get_mode_instruction(
+                self.assistant_state.get_response_mode()
+            ),
+            project_context=self.project_store.summarize(
+                self.assistant_state.get_active_project()
+            ),
+            conversation_summary=self.podsumowanie_historii,
+            tools=None,
+            tool_executor=None,
+        )
+        self.historia.append({"role": "assistant", "content": response})
+        self._remember_turn("assistant", response)
+        self._save_history()
+        return response
+
     def stream_response(
         self,
         user_text: str,
         utterance_end_time: float | None = None,
+        speak: bool = True,
     ) -> Iterator[ConversationEvent]:
         user_text = user_text.strip()
         if not user_text:
@@ -227,7 +266,6 @@ class ConversationEngine:
         self.historia.append({"role": "user", "content": user_text})
         self.assistant_state.set_status(AssistantStatus.THINKING)
         self._logger.info("Sending command to LLM. Source: stream_response; length: %s", len(user_text))
-        self._logger.info("OpenAI payload preview: %s", user_text[:240])
         yield ConversationEvent(AssistantStatus.THINKING.value.upper(), "")
 
         if self.settings.function_calling_enabled:
@@ -248,6 +286,8 @@ class ConversationEngine:
             )
             yield ConversationEvent(AssistantStatus.THINKING.value.upper(), final_response)
             if (
+                speak
+                and
                 czy_mowa_wlaczona()
                 and final_response
                 and not final_response.startswith("Wystapil blad")
@@ -265,6 +305,8 @@ class ConversationEngine:
         tracker = LatencyTracker(self.settings, utterance_end_time)
         speech_queue = None
         if (
+            speak
+            and
             czy_mowa_wlaczona()
             and self.settings.low_latency_mode
             and self.settings.streaming_tts
@@ -304,6 +346,8 @@ class ConversationEngine:
             speech_queue.close()
             speech_queue.wait()
         elif (
+            speak
+            and
             czy_mowa_wlaczona()
             and final_response
             and not final_response.startswith("Wystapil blad")

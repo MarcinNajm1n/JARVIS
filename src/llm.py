@@ -127,13 +127,13 @@ class LLMClient:
 
         except OpenAIError as error:
             self._logger.exception("OpenAI LLM request failed")
-            return f"Wystapil blad OpenAI API: {error}"
+            return "Wystapil blad OpenAI API. Szczegoly zapisano w lokalnych logach."
         except ValueError as error:
             self._logger.warning("LLM configuration error: %s", error)
             return f"Brakuje konfiguracji LLM: {error}"
         except Exception as error:
             self._logger.exception("Unexpected LLM error")
-            return f"Wystapil nieoczekiwany blad programu: {error}"
+            return "Wystapil nieoczekiwany blad programu. Szczegoly zapisano w lokalnych logach."
 
     def correct_transcript(self, text: str) -> str:
         text = text.strip()
@@ -263,13 +263,13 @@ class LLMClient:
 
         except OpenAIError as error:
             self._logger.exception("OpenAI streaming LLM request failed")
-            yield f"Wystapil blad OpenAI API: {error}"
+            yield "Wystapil blad OpenAI API. Szczegoly zapisano w lokalnych logach."
         except ValueError as error:
             self._logger.warning("LLM streaming configuration error: %s", error)
             yield f"Brakuje konfiguracji LLM: {error}"
         except Exception as error:
             self._logger.exception("Unexpected streaming LLM error")
-            yield f"Wystapil nieoczekiwany blad programu: {error}"
+            yield "Wystapil nieoczekiwany blad programu. Szczegoly zapisano w lokalnych logach."
 
     @staticmethod
     def _extract_function_calls(response: Any) -> list[dict[str, Any]]:

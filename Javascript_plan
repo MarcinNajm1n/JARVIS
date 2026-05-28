@@ -1,0 +1,373 @@
+# Javascript_plan
+
+## Cel
+
+Stworzyc dla JARVISA warstwe aktualnych informacji z internetu oraz nowy, animowany fullscreen display. Display ma zastapic obecna mala karte wyniku: kokpit startowy z panelami ma zanikac, a wyniki wyszukiwania, mapy, galerie i zrodla maja pojawiac sie na calym ekranie w sposob zgodny z obecnym przeplywem WebSocket i stanami aplikacji.
+
+## Diagnoza obecnego stanu
+
+Obecny przeplyw wyglada tak:
+
+1. `src/web_app.py` odbiera tekst lub komende glosowa.
+2. `ConversationEngine` generuje odpowiedz LLM.
+3. `src/visual_planner.py` probuje zbudowac `VISUAL_RESULT`.
+4. `ui/app.js` renderuje wynik w `resultPanel`.
+5. `ui/styles.css` trzyma wynik w malej karcie umieszczonej w centrum kokpitu.
+
+To jest dobra baza, ale obecny display jest za maly. Tekst i statusy potrafia nachodzic na wynik, mapa jest scisnieta w malym kontenerze, a UI dalej zachowuje sie jak kokpit z doczepiona karta, nie jak pelnoekranowy tryb prezentacji.
+
+## Etap 1: Web Search w Pythonie
+
+1. Dodac `src/search_service.py` jako glowne API wyszukiwania.
+2. Zostawic obecny `src/web_search.py` jako darmowy fallback.
+3. Zdefiniowac provider interface:
+
+```python
+search(query: str) -> SearchBundle
+```
+
+4. Wynik wyszukiwania powinien zawierac:
+   - `title`
+   - `url`
+   - `snippet`
+   - `source`
+   - `published_at`
+   - `image_url`
+   - `confidence`
+
+5. Dodac konfiguracje w `.env`:
+
+```env
+WEB_SEARCH_ENABLED=true
+WEB_SEARCH_PROVIDER=duckduckgo
+WEB_SEARCH_API_KEY=
+WEB_SEARCH_TIMEOUT=5
+WEB_SEARCH_CACHE_ENABLED=true
+WEB_SEARCH_CACHE_PATH=data/search_cache.json
+```
+
+6. Dodac cache w `data/search_cache.json`, zeby nie pytac internetu ponownie o to samo.
+7. Dodac logi: jaka fraza zostala wyszukana, ktory provider zostal uzyty, ile wynikow wrocilo.
+
+## Etap 2: Router aktualnych informacji
+
+1. Dodac decyzje, czy pytanie wymaga aktualnych danych.
+2. Do internetu powinny isc pytania typu:
+   - kto jest teraz najbogatszy
+   - aktualna pogoda
+   - najnowsze wiadomosci
+   - kurs akcji
+   - aktualny CEO
+   - aktualny ranking
+   - data premiery
+
+3. Do internetu nie musza isc:
+   - lokalne komendy
+   - zadania
+   - pamiec
+   - status projektu
+   - zwykla rozmowa bez potrzeby aktualnosci
+
+4. Router powinien dzialac naturalnie, bez koniecznosci wpisywania `/search`.
+5. W trybie wake dalej obowiazuje zasada: bez aktywacji nie ma LLM ani web search.
+
+## Etap 3: Walidacja wynikow przez model
+
+1. Backend pobiera kilka wynikow z internetu.
+2. Tworzy krotki pakiet zrodel: tytul, url, snippet, data.
+3. Model waliduje wyniki i zwraca JSON:
+
+```json
+{
+  "status": "supported",
+  "confidence": 0.91,
+  "answer": "...",
+  "supported_claims": [
+    {
+      "text": "...",
+      "source_url": "...",
+      "confidence": 0.92
+    }
+  ],
+  "contradictions": [],
+  "best_sources": []
+}
+```
+
+4. Jesli zrodla sa slabe albo sprzeczne, JARVIS ma powiedziec:
+
+```txt
+Nie mam wystarczajaco pewnych aktualnych danych.
+```
+
+5. Display pokazuje tylko dane, ktore przeszly walidacje.
+6. Obrazy tez musza pasowac do encji. Nie moze byc sytuacji, w ktorej odpowiedz dotyczy jednej osoby, a display pokazuje inna.
+
+## Etap 4: Nowy kontrakt VISUAL_RESULT
+
+Wprowadzic bogatszy format payloadu:
+
+```json
+{
+  "type": "visual_result",
+  "mode": "entity_gallery",
+  "title": "Robert Oppenheimer",
+  "summary": "...",
+  "claims": [
+    {
+      "text": "...",
+      "source_url": "...",
+      "confidence": 0.92
+    }
+  ],
+  "media_items": [
+    {
+      "image_url": "...",
+      "caption": "...",
+      "source_url": "..."
+    }
+  ],
+  "sources": ["..."],
+  "validation": {
+    "confidence": 0.91,
+    "status": "supported"
+  }
+}
+```
+
+Tryby displaya:
+
+1. `entity_profile` - profil osoby, firmy, miejsca.
+2. `entity_gallery` - kilka obrazow i faktow.
+3. `map_weather` - pogoda i mapa.
+4. `search_results` - lista aktualnych wynikow z internetu.
+5. `timeline` - wydarzenia w czasie.
+6. `comparison` - porownanie kilku encji.
+7. `generic` - neutralny fallback.
+
+## Etap 5: Fullscreen Visual Scene
+
+1. Dodac w `ui/index.html` osobny kontener:
+
+```html
+<section class="visual-stage" id="visualStage" hidden></section>
+```
+
+2. `visualStage` powinien znajdowac sie poza obecnym `core-wrap`.
+3. Obecny kokpit startowy zostaje:
+   - state
+   - llm gate
+   - systems
+   - wake transcript
+   - tasks
+   - project
+   - briefing
+   - memory
+   - HUD
+
+4. Po otrzymaniu `VISUAL_RESULT`:
+   - panele boczne zanikaja
+   - rdzen JARVISA rozszerza sie lub przechodzi w tlo
+   - `visualStage` przejmuje caly ekran
+   - wynik jest renderowany bez ciasnych ramek
+
+5. Po zakonczeniu displaya:
+   - `visualStage` znika
+   - kokpit wraca
+   - JARVIS wraca do odpowiedniego stanu: `LISTENING_COMMAND`, `SLEEPING` albo `IDLE`
+
+## Etap 6: Animacje w JavaScript
+
+Dodac w `ui/app.js` kontroler:
+
+```javascript
+class VisualSceneController {
+  showSearching(payload) {}
+  showValidation(payload) {}
+  showGallery(payload) {}
+  showMap(payload) {}
+  showSearchResults(payload) {}
+  clear() {}
+  emergencyStop() {}
+}
+```
+
+Stany:
+
+1. `idle`
+2. `searching`
+3. `validating`
+4. `displaying_gallery`
+5. `displaying_map`
+6. `returning`
+7. `emergency_stopped`
+
+Animacje:
+
+1. Search: skanowanie ekranu, pulsujacy rdzen, zanik kokpitu.
+2. Validation: krotka sekwencja sprawdzania zrodel.
+3. Gallery: 3-4 obrazy wchodza kaskadowo.
+4. Context expansion: stare obrazy znikaja, pojawiaja sie nowe z dodatkowymi faktami.
+5. Source reveal: przy kazdym fakcie pojawia sie krotkie zrodlo.
+6. Return: wynik znika, kokpit wraca do normalnego ukladu.
+
+## Etap 7: Galerie i dydaktyczny display
+
+Dla pytan o osoby, firmy, wydarzenia i miejsca display powinien pokazac:
+
+1. Tytul.
+2. Krotkie streszczenie.
+3. 3-4 obrazy.
+4. 3-5 faktow.
+5. Zrodla.
+6. Confidence walidacji.
+7. Dodatkowy kontekst: timeline, osiagniecia, powiazane osoby lub firmy.
+
+Przyklad dla osoby:
+
+1. Najpierw pojawia sie portret.
+2. Obok pojawiaja sie 2-3 fakty.
+3. Po chwili portret przesuwa sie, wchodza kolejne obrazy.
+4. Display pokazuje osiagniecia, aktualny kontekst i zrodla.
+
+## Etap 8: Naprawa map
+
+Problem z mapa prawdopodobnie wynika z renderowania Leaflet w malym albo ukrytym kontenerze.
+
+Plan naprawy:
+
+1. Mapa ma byc renderowana w fullscreen `visualStage`, nie w malej karcie.
+2. Kontener mapy ma miec jawne wymiary:
+
+```css
+.visual-map {
+  width: min(82vw, 1200px);
+  height: min(72vh, 760px);
+}
+```
+
+3. Leaflet inicjalizowac dopiero po pokazaniu overlayu.
+4. Wywolac `map.invalidateSize()`:
+   - po `requestAnimationFrame`
+   - po `transitionend`
+   - po `ResizeObserver`
+
+5. Nie robic `leafletMapElement.replaceChildren()` na aktywnej mapie bez `leafletMap.remove()`.
+6. Dodac fallback iframe OpenStreetMap, jesli Leaflet/CDN nie zadziala.
+7. Dodac test DOM, ktory sprawdza, ze mapa ma jawne wymiary i dostaje tryb fullscreen.
+
+## Etap 9: Fail safe
+
+Dodać awaryjne zatrzymanie niezalezne od aktualnego procesu.
+
+Frontend:
+
+1. Globalny skrot: `Ctrl + Alt + Q`.
+2. Skrot natychmiast:
+   - chowa fullscreen display
+   - zatrzymuje TTS
+   - wysyla `POST /api/emergency-stop`
+   - ustawia UI w tryb bezpieczny
+
+3. `Esc` przytrzymany 2 sekundy:
+   - zamyka tylko display
+   - nie zamyka calego programu
+
+Backend:
+
+1. Endpoint:
+
+```txt
+POST /api/emergency-stop
+```
+
+2. Akcje:
+   - `engine.stop_all()`
+   - zatrzymanie TTS
+   - przerwanie aktywnych zadan async, jesli sa sledzone
+   - wyslanie eventu `EMERGENCY_STOP`
+   - powrot do `SLEEPING` albo `IDLE`
+
+3. Ten endpoint nie moze wymagac aktywacji wake phrase.
+
+## Etap 10: Kompatybilnosc z obecnym programem
+
+1. Nie ruszac zasady: bez aktywacji nie ma LLM.
+2. Obecny `VISUAL_RESULT` zostaje, ale payload jest rozszerzany.
+3. Obecne tryby `map_weather` i `entity_profile` nadal musza dzialac.
+4. `DASHBOARD` dalej zasila panele startowe.
+5. `SEARCHING`, `DISPLAYING_RESULT`, `SPEAKING`, `LISTENING_COMMAND` nadal musza byc obslugiwane przez UI.
+6. Nowy fullscreen display nie powinien niszczyc obecnego kokpitu, tylko go czasowo przykrywac.
+7. W razie bledu display wraca do neutralnego komunikatu.
+
+## Etap 11: Testy
+
+Backend:
+
+1. `tests/test_search_service.py`
+   - search zwraca kilka wynikow
+   - provider timeout nie wywala aplikacji
+   - cache dziala
+   - wyniki maja URL i zrodlo
+
+2. `tests/test_visual_planner.py`
+   - visual planner nie pokazuje wyniku bez walidacji
+   - zrodla sprzeczne daja neutralny display
+   - obraz niepasujacy do encji jest odrzucany
+   - `entity_gallery` ma kilka `media_items`
+
+3. `tests/test_web_wake_gate.py`
+   - bez aktywacji nie ma search/LLM
+   - po aktywacji search moze wystartowac
+   - emergency stop dziala bez aktywacji
+
+Frontend:
+
+1. `tests/test_ui_dashboard.py`
+   - HTML ma `visualStage`
+   - JS ma `VisualSceneController`
+   - CSS ma fullscreen scene
+   - skrot fail safe jest obslugiwany
+
+2. Test mapy:
+   - `map_weather` renderuje fullscreen map container
+   - mapa ma jawne wymiary
+   - `invalidateSize` jest wywolywane po pokazaniu sceny
+
+3. Test tekstu:
+   - dlugi opis nie wychodzi poza ekran
+   - tekst jest dzielony na summary, facts i sources
+
+## Kolejnosc wykonania
+
+1. Backend `search_service.py`.
+2. Router aktualnych informacji.
+3. Walidacja wynikow przez model.
+4. Nowy kontrakt `VISUAL_RESULT`.
+5. Fullscreen `visualStage`.
+6. Animacje `VisualSceneController`.
+7. Galerie obrazow i zrodla.
+8. Naprawa map.
+9. Fail safe.
+10. Testy integracyjne i pelny `pytest`.
+
+## Najwazniejsze ryzyka
+
+1. Koszt tokenow moze wzrosnac przez walidacje zrodel.
+2. Zrodla internetowe moga byc sprzeczne.
+3. Obrazy z internetu moga nie pasowac do encji.
+4. Leaflet moze nie dzialac, jesli CDN jest niedostepny.
+5. Fullscreen display moze zaburzyc obecny wake flow, jesli nie bedzie oddzielony od logiki backendu.
+
+## Zasady bezpieczenstwa
+
+1. Bez aktywacji nie wysylamy nic do LLM.
+2. Web search w trybie wake startuje dopiero po aktywacji.
+3. Logujemy, co zostalo wyslane do OpenAI.
+4. Logujemy, jakie query poszlo do searcha.
+5. Emergency stop zawsze dziala.
+6. Jesli walidacja jest slaba, JARVIS mowi, ze nie ma pewnych danych.
+
+## Rekomendacja
+
+Najpierw nalezy zrobic backend search i walidacje. Dopiero potem warto budowac animacje, bo ladny display bez pewnych danych bedzie tylko bardzo elegancko pokazywal niepewne informacje.
